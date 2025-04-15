@@ -337,7 +337,7 @@ export default {
       }
       return true
     },
-    handleDragEnd() {
+    handleDragEnd(draggingNode, dropNode, dropType, event) {
       const treeData = this.menu
       // 将拖动的顺序和层级信息保存到后台
 
@@ -345,6 +345,12 @@ export default {
       if (this.keyword) {
         return false
       }
+      
+      // 获取拖动元素的信息
+      const draggedData = draggingNode.data
+      const draggedId = draggedData.page_id > 0 ? draggedData.page_id : draggedData.cat_id
+      const draggedTitle = draggedData.title || ''
+      const draggedType = draggedData.page_id > 0 ? 'page' : 'catalog'
 
       // 先定义一个函数，将目录数组降维
       const dimensionReduction = treeData => {
@@ -376,7 +382,10 @@ export default {
       const tdata = dimensionReduction(treeData)
       this.request('/api/catalog/batUpdate', {
         item_id: this.item_info.item_id,
-        cats: JSON.stringify(tdata)
+        cats: JSON.stringify(tdata),
+        dragged_id: draggedId,
+        dragged_title: draggedTitle,
+        dragged_type: draggedType
       })
     },
     handleNodeClick(data) {
@@ -445,6 +454,41 @@ export default {
         ? this.item_info.item_domain
         : this.item_info.item_id
       return '/' + domain + '/' + page_id
+    },
+    // 展开所有目录
+    expandAllCatalogs() {
+      this.expandCollapseCatalogStatus = '1'
+      const allIds = this.getAllFolderIds(this.menu)
+      this.openeds = allIds
+    },
+    // 折叠所有目录
+    collapseAllCatalogs() {
+      this.expandCollapseCatalogStatus = '2'
+      this.openeds = []
+      if (this.$refs.tree && this.$refs.tree.store) {
+        for (let i = 0; i < this.$refs.tree.store._getAllNodes().length; i++) {
+          this.$refs.tree.store._getAllNodes()[i].expanded = false
+        }
+      }
+    },
+    // 获取所有目录节点的ID
+    getAllFolderIds(nodes) {
+      let ids = []
+      const collectIds = items => {
+        if (!items || !items.length) return
+
+        items.forEach(item => {
+          if (item.type === 'folder') {
+            ids.push(item.id)
+            if (item.children && item.children.length) {
+              collectIds(item.children)
+            }
+          }
+        })
+      }
+
+      collectIds(nodes)
+      return ids
     }
   },
   mounted() {

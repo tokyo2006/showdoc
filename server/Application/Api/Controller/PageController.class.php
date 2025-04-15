@@ -12,6 +12,7 @@ class PageController extends BaseController
     public function info()
     {
         $page_id = I("page_id/d");
+        $with_path = I("with_path/d"); // 是否需要返回完整的路径信息
         $page = D("Page")->where(" page_id = '$page_id' ")->find();
         if (!$page  || $page['is_del'] == 1) {
             sleep(1);
@@ -37,13 +38,87 @@ class PageController extends BaseController
 
             $singlePage = M("SinglePage")->where(" page_id = '%d' ", array($page_id))->limit(1)->find();
             if ($singlePage) {
-                $page['unique_key'] =  $singlePage['unique_key'];
+                // 检查单页链接是否已过期
+                if ($singlePage['expire_time'] > 0 && $singlePage['expire_time'] < time()) {
+                    // 链接已过期，从数据库中删除记录
+                    M("SinglePage")->where(" page_id = '%d' ", array($page_id))->delete();
+                    $page['unique_key'] = '';
+                } else {
+                    $page['unique_key'] = $singlePage['unique_key'];
+                }
             } else {
                 $page['unique_key'] = '';
+            }
+
+            // 如果请求了完整路径信息，获取该页面的所有上级目录
+            if ($with_path && $page['cat_id']) {
+                $full_path = $this->getFullPath($page['cat_id'], $page['item_id']);
+                // 添加当前页面作为路径的最后一个元素
+                $full_path[] = array(
+                    'page_id' => $page['page_id'],
+                    'page_title' => $page['page_title']
+                );
+                $page['full_path'] = $full_path;
             }
         }
         $this->sendResult($page);
     }
+
+    /**
+     * 获取目录的完整路径
+     * @param int $cat_id 当前目录ID
+     * @param int $item_id 项目ID
+     * @return array 完整路径数组
+     */
+    private function getFullPath($cat_id, $item_id)
+    {
+        if (!$cat_id || !$item_id) {
+            return array();
+        }
+
+        // 获取项目的目录结构
+        $item = D("Item")->where("item_id = '%d'", array($item_id))->find();
+        if (!$item) {
+            return array();
+        }
+
+        // 递归查找目录路径
+        $path = array();
+        $this->findCatPath($cat_id, $item_id, $path);
+
+        // 返回路径（从上到下排序）
+        return array_reverse($path);
+    }
+
+    /**
+     * 递归查找目录路径
+     * @param int $cat_id 当前目录ID
+     * @param int $item_id 项目ID
+     * @param array &$path 路径数组（引用传递）
+     * @return boolean 是否找到路径
+     */
+    private function findCatPath($cat_id, $item_id, &$path)
+    {
+        // 查找当前目录信息
+        $catalog = D("Catalog")->where("cat_id = '%d' AND item_id = '%d'", array($cat_id, $item_id))->find();
+        if (!$catalog) {
+            return false;
+        }
+
+        // 添加当前目录到路径
+        $path[] = array(
+            'cat_id' => $catalog['cat_id'],
+            'cat_name' => $catalog['cat_name']
+        );
+
+        // 如果有父目录，继续递归查找
+        if ($catalog['parent_cat_id'] > 0) {
+            return $this->findCatPath($catalog['parent_cat_id'], $item_id, $path);
+        }
+
+        return true;
+    }
+
     //删除页面
     public function delete()
     {
@@ -330,6 +405,7 @@ class PageController extends BaseController
     {
         $page_id = I("page_id/d");
         $isCreateSiglePage = I("isCreateSiglePage");
+        $expire_days = I("expire_days/d", 0); // 获取有效期天数，默认为0表示永久有效
         $page = M("Page")->where(" page_id = '$page_id' ")->find();
         if (!$page || $page['is_del'] == 1) {
             sleep(1);
@@ -343,9 +419,17 @@ class PageController extends BaseController
         }
         D("SinglePage")->where(" page_id = '$page_id' ")->delete();
         $unique_key = md5(time() . rand() . "gbgdhbdgtfgfK3@bv45342regdhbdgtfgftghsdg");
+
+        // 计算过期时间
+        $expire_time = 0; // 默认为0表示永久有效
+        if ($expire_days > 0) {
+            $expire_time = time() + ($expire_days * 24 * 60 * 60); // 当前时间加上天数换算成的秒数
+        }
+
         $add = array(
             "unique_key" => $unique_key,
             "page_id" => $page_id,
+            "expire_time" => $expire_time
         );
         if ($isCreateSiglePage == 'true') { //这里的布尔值被转成字符串了
             D("SinglePage")->add($add);
@@ -365,6 +449,14 @@ class PageController extends BaseController
         $singlePage = M("SinglePage")->where(" unique_key = '%s' ", array($unique_key))->find();
         $page_id = $singlePage['page_id'];
 
+        // 检查链接是否已过期
+        if ($singlePage && $singlePage['expire_time'] > 0 && $singlePage['expire_time'] < time()) {
+            // 链接已过期，从数据库中删除记录
+            M("SinglePage")->where(" unique_key = '%s' ", array($unique_key))->delete();
+            $this->sendError(10101, "该分享链接已过期");
+            return false;
+        }
+
         $page = M("Page")->where(" page_id = '$page_id' ")->find();
         if (!$page || $page['is_del'] == 1) {
             sleep(1);
@@ -379,6 +471,10 @@ class PageController extends BaseController
             $page['addtime'] = date("Y-m-d H:i:s", $page['addtime']);
             //判断是否包含附件信息
             $page['attachment_count'] = D("FilePage")->where("page_id = '$page_id' ")->count();
+            // 添加单页链接过期时间字段
+            if ($singlePage) {
+                $page['expire_time'] = $singlePage['expire_time'];
+            }
         }
         $this->sendResult($page);
     }

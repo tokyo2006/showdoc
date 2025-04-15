@@ -68,6 +68,13 @@ exports.default = {
   update_email_success:
     'Update your mailbox successfully! Please log in to check the email to check the email.',
 
+  // push notification
+  push_url: 'Push URL',
+  not_set: 'Not set',
+  input_push_url: 'Input push URL',
+  input_push_url_tips: 'Get your push URL from push.showdoc.com.cn',
+  save_success: 'Save success',
+
   // item/index
   personal_setting: 'Personal settings',
   web_home: 'Home',
@@ -223,7 +230,6 @@ exports.default = {
   save_time: 'Save time',
   insert_templ: 'Insert',
   delete_templ: 'Delete',
-  save_success: 'Save success',
   paste_insert_table: 'Insert table from paste',
   paste_insert_table_tips:
     'Paste (Ctrl + V) below an existing table data copied (Ctrl + C) from a spreadsheet (e.g. Microsoft Excel), a text document, a Markdown code, or even a website.',
@@ -410,10 +416,17 @@ exports.default = {
 
   cancelSingle:
     'Are you sure you want to cancel the single page link? After cancellation, the original link will be invalid immediately',
-  cancelSingleYes: 'Unlink single page',
-  cancelSingleNo: 'Keep single page',
+  cancelSingleYes: 'Cancel Single Page',
+  cancelSingleNo: 'Keep Single Page',
 
-  from_file_gub: 'From FileHub',
+  expire_time: 'Expiration',
+  permanent: 'Permanent',
+  one_day: 'One Day',
+  seven_days: 'Seven Days',
+  one_month: 'One Month',
+  half_year: 'Half Year',
+
+  from_file_gub: 'Select From Library',
   file_gub: 'FileHub',
   select: 'select',
 
@@ -541,6 +554,8 @@ exports.default = {
     'Are you sure to quit the team? After quitting, you will lose all project permissions under the team',
 
   expand_collapse_catalog_tips: 'Expand all catalogs / collapse all catalogs',
+  expand_all: 'Expand all catalogs',
+  collapse_all: 'Collapse all catalogs',
 
   edit_group: 'Create/Edit Group',
   star_items: 'Star Items',
@@ -610,5 +625,15 @@ exports.default = {
   subcat: 'subcatalog',
   sync: 'synchronizing',
   force_login: 'Force login',
-  force_login_tips: 'When accessing any item, tourists will be required to log in to their account and are not allowed to access as non logged in individuals'
+  force_login_tips:
+    'When accessing any item, tourists will be required to log in to their account and are not allowed to access as non logged in individuals',
+
+  // 视图模式
+  list_view: 'List',
+  card_view: 'Card',
+  no_description: 'No description',
+
+  // search breadcrumb
+  search_results_for: 'Search results for',
+  home: 'Home'
 }
