@@ -128,6 +128,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { useAiEdit } from '@/composables/useAiEdit'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/store'
@@ -203,6 +204,7 @@ const showEditor = ref(false) // 控制编辑器显示时机，确保数据加�
 let draftTimer: any = null
 let lockTimer: any = null
 let lockHeartbeatTimer: any = null
+let cleanupAiEditFn: (() => void) | null = null
 
 // 占位函数，后面会实现
 let toggleLock: any = null
@@ -1211,6 +1213,27 @@ onMounted(async () => {
 
   // 添加剪切板监听
   document.addEventListener('paste', handlePaste)
+
+  // 注册全局编辑器内容 getter（供 AiChatDialog 读取编辑器内容）
+  ;(window as any).__GET_EDITOR_CONTENT__ = () => {
+    if (editormdEditorRef.value && editormdEditorRef.value.getValue) {
+      return editormdEditorRef.value.getValue() || null
+    }
+    return null
+  }
+
+  // 监听 AI 编辑事件，收到 ai:edit 时更新编辑器内容
+  const { cleanup: _cleanupAiEdit } = useAiEdit((content, ctx) => {
+    // 严格匹配：仅当 ctx.pageId 与当前 pageId 都为正且相等时才应用
+    const targetPageId = Number(ctx.pageId)
+    const current = Number(currentPageId.value)
+    if (!(targetPageId > 0 && current > 0 && targetPageId === current)) {
+      return
+    }
+    editormdEditorRef.value?.setValue(content)
+  })
+  // 保存清理函数供 onBeforeUnmount 使用
+  cleanupAiEditFn = _cleanupAiEdit
 })
 
 onBeforeUnmount(() => {
@@ -1228,6 +1251,11 @@ onBeforeUnmount(() => {
   // 移除事件监听
   window.removeEventListener('keydown', handleKeydown)
   document.removeEventListener('paste', handlePaste)
+
+  // 清理全局编辑器 getter
+  delete (window as any).__GET_EDITOR_CONTENT__
+  // 清理 AI 编辑监听
+  if (cleanupAiEditFn) cleanupAiEditFn()
 })
 </script>
 

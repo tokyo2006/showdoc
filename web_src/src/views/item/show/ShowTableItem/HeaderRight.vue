@@ -112,6 +112,7 @@ import AttornModal from '@/views/modals/item/AttornModal/index'
 import DeleteModal from '@/views/modals/item/DeleteModal/index'
 import CreateItemModal from '@/views/modals/item/CreateItemModal'
 import ChangeLogModal from '@/views/modals/item/ChangeLogModal/index'
+import AiSettingsModal from '@/views/modals/item/AiSettingsModal/index'
 
 interface Props {
   itemInfo: any
@@ -137,6 +138,11 @@ const menuItems = computed(() => [
     value: 'update',
     icon: ['fa-regular', 'fa-edit'],
     text: t('item.updateBaseInfo'),
+  },
+  {
+    value: 'aiSetting',
+    icon: ['fas', 'fa-wand-magic-sparkles'],
+    text: t('item.ai_assistant_setting'),
   },
   {
     value: 'attorn',
@@ -205,6 +211,11 @@ const handleDropdownSelect = async (item: any) => {
         await CreateItemModal({
           item_id: props.itemInfo.item_id,
         })
+      }
+      break
+    case 'aiSetting':
+      if (props.itemInfo) {
+        await AiSettingsModal(props.itemInfo.item_id)
       }
       break
     case 'attorn':

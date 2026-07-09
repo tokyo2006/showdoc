@@ -28,7 +28,7 @@ interface Props {
 const props = withDefaults(defineProps<Props>(), {
   visibilityHeight: 100,
   right: 40,
-  bottom: 40,
+  bottom: 100,
   target: () => window
 })
 

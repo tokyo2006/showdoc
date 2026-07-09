@@ -185,13 +185,6 @@
 
     <!-- 回到顶部 -->
     <CommonTop :visibilityHeight="100" />
-
-    <!-- AI 聊天对话框（仅在项目开启了 AI 知识库时显示） -->
-    <AiChatDialog
-      v-if="aiEnabled && itemInfo?.item_id"
-      :item-id="itemInfo.item_id"
-      :item-name="itemInfo.item_name"
-    />
   </div>
 </template>
 
@@ -221,7 +214,6 @@ import AttachmentListModal from '@/views/modals/page/AttachmentListModal/index'
 import PageComment from './components/PageComment.vue'
 import PageFeedback from './components/PageFeedback.vue'
 import Toc from '@/components/Toc.vue'
-import AiChatDialog from '@/components/AiChatDialog.vue'
 
 // Props
 interface Props {
@@ -267,7 +259,6 @@ const itemInfo = ref<any>(props.itemInfo || {})
 const _taskSaveTimer = ref<number | null>(null)
 const tocKey = ref(0) // 用于强制重新挂载 Toc 组件
 const _lastFetchTime = ref<Record<number, number>>({}) // 记录每个页面ID上次请求时间
-const aiEnabled = ref(false) // 项目是否开启了 AI 知识库
 const lastLoadedPageId = ref(0) // 记录上一次加载的页面ID，用于移动端抽屉控制
 
 // Computed
@@ -277,41 +268,6 @@ const isItemEditable = computed(() => {
   // 使用弱等于判断，因为后端可能返回字符串
   return itemInfo.value?.item_edit == 1
 })
-
-// 检测项目是否开启了 AI 知识库
-const checkAiEnabled = async () => {
-  if (!itemInfo.value?.item_id) {
-    return
-  }
-
-  try {
-    const res = await request('/api/item/getAiKnowledgeBaseConfig', {
-      item_id: itemInfo.value.item_id,
-    })
-
-    if (res.error_code === 0 && res.data) {
-      let enabled = false
-
-      // 兼容两种返回格式
-      if (res.data.ai_config) {
-        // 旧版接口格式：data.ai_config.enabled
-        enabled = res.data.ai_config.enabled > 0
-      } else if (res.data.enabled !== undefined) {
-        // 新版接口格式：data.enabled
-        enabled = res.data.enabled > 0
-      } else if (res.data.ai_knowledge_base_enabled !== undefined) {
-        // 兼容格式：data.ai_knowledge_base_enabled
-        enabled = res.data.ai_knowledge_base_enabled > 0
-      }
-
-      aiEnabled.value = enabled
-    } else {
-      aiEnabled.value = false
-    }
-  } catch (error) {
-    aiEnabled.value = false
-  }
-}
 
 // Methods
 // 高亮文本中的关键词（排除代码块，避免 <mark> 标签污染代码内容）
@@ -479,8 +435,6 @@ const handleSearch = async (keyword: string) => {
           // 清空当前页面内容
           pageContent.value = ''
           currentPageId.value = 0
-          // 重新检测 AI 配置
-          checkAiEnabled()
         }
       }
     } catch (error) {
@@ -654,12 +608,6 @@ watch(
       } else {
         emptyItem.value = false
       }
-
-      // 检测项目是否开启了 AI 知识库
-      // 使用 setTimeout 确保 itemInfo 已经更新
-      setTimeout(() => {
-        checkAiEnabled()
-      }, 100)
     }
   },
   { immediate: true }

@@ -16,7 +16,7 @@ class Upgrade
      * 当前数据库版本号
      * 注意：如果更新数据库结构，务必更改此版本号
      */
-    private const CURRENT_VERSION = 31;
+    private const CURRENT_VERSION = 32;
 
     /**
      * 检查并执行数据库升级
@@ -643,9 +643,21 @@ class Upgrade
                 `enabled` int(1) NOT NULL DEFAULT '0',
                 `dialog_collapsed` int(1) NOT NULL DEFAULT '1',
                 `welcome_message` text NOT NULL DEFAULT '',
+                `system_prompt` text NOT NULL DEFAULT '',
+                `guest_enabled` int(1) NOT NULL DEFAULT '0',
                 `addtime` int(11) NOT NULL DEFAULT '0',
                 `updatetime` int(11) NOT NULL DEFAULT '0'
             )");
+
+            // item_ai_config 表补充 system_prompt 字段（兼容已存在的旧表）
+            if (!self::isColumnExist('item_ai_config', 'system_prompt')) {
+                DB::statement("ALTER TABLE item_ai_config ADD system_prompt text NOT NULL DEFAULT ''");
+            }
+
+            // item_ai_config 表补充 guest_enabled 字段（兼容已存在的旧表）
+            if (!self::isColumnExist('item_ai_config', 'guest_enabled')) {
+                DB::statement("ALTER TABLE item_ai_config ADD guest_enabled INT(1) NOT NULL DEFAULT '0'");
+            }
 
             // 创建索引
             DB::statement("CREATE UNIQUE INDEX IF NOT EXISTS uk_item_id ON item_ai_config (item_id)");
@@ -713,6 +725,31 @@ class Upgrade
             )");
             DB::statement("CREATE INDEX IF NOT EXISTS idx_kanban_activity_item ON kanban_activity_log (item_id)");
             DB::statement("CREATE INDEX IF NOT EXISTS idx_kanban_activity_addtime ON kanban_activity_log (addtime)");
+
+            // 创建 ai_chat_sessions 表（AI Agent 会话）
+            DB::statement("CREATE TABLE IF NOT EXISTS `ai_chat_sessions` (
+                `id` INTEGER PRIMARY KEY AUTOINCREMENT,
+                `uid` int(11) NOT NULL DEFAULT '0',
+                `item_id` int(11) NOT NULL DEFAULT '0',
+                `guest_token` varchar(64) DEFAULT NULL,
+                `last_message_at` int(11) NOT NULL DEFAULT '0',
+                `created_at` int(11) NOT NULL DEFAULT '0',
+                `is_del` tinyint(1) NOT NULL DEFAULT '0'
+            )");
+            DB::statement("CREATE INDEX IF NOT EXISTS idx_ai_session_uid_item ON ai_chat_sessions (uid, item_id)");
+            DB::statement("CREATE INDEX IF NOT EXISTS idx_ai_session_guest ON ai_chat_sessions (guest_token)");
+            DB::statement("CREATE INDEX IF NOT EXISTS idx_ai_session_lastmsg ON ai_chat_sessions (last_message_at)");
+
+            // 创建 ai_chat_messages 表（AI Agent 消息）
+            DB::statement("CREATE TABLE IF NOT EXISTS `ai_chat_messages` (
+                `id` INTEGER PRIMARY KEY AUTOINCREMENT,
+                `session_id` int(11) NOT NULL DEFAULT '0',
+                `role` varchar(20) NOT NULL DEFAULT 'user',
+                `content` text,
+                `feedback` tinyint(1) NOT NULL DEFAULT '0',
+                `created_at` int(11) NOT NULL DEFAULT '0'
+            )");
+            DB::statement("CREATE INDEX IF NOT EXISTS idx_ai_message_session ON ai_chat_messages (session_id, id)");
 
             return true;
         } catch (\Throwable $e) {

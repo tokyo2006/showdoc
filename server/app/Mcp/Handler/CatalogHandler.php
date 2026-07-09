@@ -216,6 +216,9 @@ class CatalogHandler extends McpHandler
       McpError::throw(McpError::OPERATION_FAILED, '目录创建失败');
     }
 
+    // 清除项目菜单缓存
+    \App\Model\Item::deleteCache($itemId);
+
     // 更新项目最后更新时间
     DB::table('item')
       ->where('item_id', $itemId)
@@ -269,6 +272,9 @@ class CatalogHandler extends McpHandler
       McpError::throw(McpError::OPERATION_FAILED, '目录更新失败');
     }
 
+    // 清除项目菜单缓存
+    \App\Model\Item::deleteCache($itemId);
+
     // 更新项目最后更新时间
     DB::table('item')
       ->where('item_id', $itemId)
@@ -302,8 +308,8 @@ class CatalogHandler extends McpHandler
 
     $itemId = (int) $catalog->item_id;
 
-    // 检查写入权限
-    $this->requireWritePermission($itemId);
+    // 检查管理权限（仅项目管理员）
+    $this->requireManagePermission($itemId);
 
     // 统计要删除的目录数量（包含子目录）
     $catIds = $this->getAllChildCatalogIds($itemId, $catId);

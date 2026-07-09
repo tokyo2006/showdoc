@@ -61,16 +61,17 @@ import ShowKanbanItem from './ShowKanbanItem/index.vue'
 import Notify from '@/components/Notify.vue'
 import request from '@/utils/request'
 import { useUserStore } from '@/store/user'
+import { useItemStore } from '@/store'
 
 const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
+const itemStore = useItemStore()
 
 const loading = ref(false)
 const itemInfo = ref<any>(null)
 const keyword = ref('')
 const itemKey = ref(1)
-let watermarkContainer: HTMLElement | null = null
 
 // 判断是否为常规项目
 const isRegularItem = computed(() => {
@@ -122,6 +123,9 @@ const fetchItemInfo = async (searchKeyword = '') => {
       itemInfo.value = data
       itemKey.value = itemKey.value + 1 // key自增以便重新渲染组件
       document.title = data.item_name + '--ShowDoc'
+
+      // 同步到 Pinia store，供全局 AI 助手按钮读取当前项目上下文
+      itemStore.setItemInfo(data)
 
       // 如果启用水印，则渲染水印
       if (data.show_watermark > 0) {
@@ -306,7 +310,6 @@ const createWatermark = (text: string) => {
 
   // 添加到页面
   document.body.appendChild(container)
-  watermarkContainer = container
 
   // 监听 DOM 变化，防止水印被删除
   const observer = new MutationObserver(() => {
@@ -343,14 +346,27 @@ watch(
   }
 )
 
+// 处理 AI changes 触发的刷新请求（来自 useAiChanges composable）
+const handleAiRefreshItem = (e: Event) => {
+  const detail = (e as CustomEvent).detail
+  console.log('[Index] ai:refresh-item received, detail:', detail)
+  // 直接刷新当前项目信息（AI 操作的就是当前项目，无需比较 id）
+  // 注意：route.params.item_id 可能是英文标识符（如 'wefef'），parseInt 后为 NaN，无法与数字 id 比较
+  fetchItemInfo(keyword.value)
+}
+
 onMounted(() => {
   fetchItemInfo()
+  window.addEventListener('ai:refresh-item', handleAiRefreshItem)
 })
 
 // 组件卸载时移除水印
 onBeforeUnmount(() => {
   removeWatermark()
   document.title = 'ShowDoc'
+  // 离开项目页时清空 store，避免 AI 助手误带旧项目上下文
+  itemStore.clearItemInfo()
+  window.removeEventListener('ai:refresh-item', handleAiRefreshItem)
 })
 </script>
 

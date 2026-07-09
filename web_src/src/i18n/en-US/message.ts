@@ -15,6 +15,5 @@ export default {
   mark_read: 'Mark as Read',
   notification: 'Notification',
   you_have_unread_announcement: 'You have unread announcements. Click here to view.',
-  vip_expiring_notice: 'Your paid ShowDoc subscription is about to expire. You can click to go to User Center to renew (please ignore if you have already renewed).',
 }
 

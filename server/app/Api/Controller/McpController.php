@@ -6,6 +6,9 @@ use App\Common\BaseController;
 use App\Mcp\McpServer;
 use App\Mcp\McpError;
 use App\Model\UserAiToken;
+use App\Model\UserToken;
+use App\Model\User;
+use App\Model\AiChatSession;
 use App\Common\Helper\IpHelper;
 use App\Common\Cache\CacheManager;
 use Psr\Http\Message\ServerRequestInterface as Request;
@@ -72,7 +75,8 @@ class McpController extends BaseController
     $tokenInfo = null;
 
     if ($this->shouldValidateToken($method)) {
-      $tokenInfo = $this->validateToken($request);
+      $tokenExtract = $this->extractToken($request);
+      $tokenInfo = $tokenExtract === null ? null : $this->verifyToken($tokenExtract);
       if ($tokenInfo === null) {
         if ($isNotification) {
           return $this->acceptedNotificationResponse($response);
@@ -86,10 +90,9 @@ class McpController extends BaseController
         ));
       }
 
-      // 频率限制检查
-      $token = $this->extractToken($request);
-      if ($token) {
-        $rateLimit = UserAiToken::checkRateLimit($token);
+      // 频率限制检查（仅对外部 ai_token；user_token/guest 为 Agent 内部回环，不受此限）
+      if ($tokenExtract !== null && in_array($tokenExtract['type'], ['bearer', 'api_token'], true)) {
+        $rateLimit = UserAiToken::checkRateLimit($tokenExtract['token']);
         if (!$rateLimit['allowed']) {
           if ($isNotification) {
             return $this->acceptedNotificationResponse($response);
@@ -105,11 +108,9 @@ class McpController extends BaseController
             $jsonRequest['id'] ?? null
           ));
         }
-      }
 
-      // 更新最后使用时间
-      if ($token) {
-        UserAiToken::touchLastUsed($token);
+        // 更新最后使用时间
+        UserAiToken::touchLastUsed($tokenExtract['token']);
       }
     }
 
@@ -137,8 +138,21 @@ class McpController extends BaseController
    * @param array $requests 请求数组
    * @return Response
    */
+  /**
+   * 单次批量请求最大工具调用数量
+   */
+  private const MAX_BATCH_REQUESTS = 10;
+
   private function handleBatchRequest(Response $response, array $requests): Response
   {
+    // 限制单次批量请求的最大数量，防止绕过频率限制
+    if (count($requests) > self::MAX_BATCH_REQUESTS) {
+      return $this->jsonResponse($response, McpError::createResponse(
+        McpError::INVALID_REQUEST,
+        '批量请求数量超出限制（最多 ' . self::MAX_BATCH_REQUESTS . ' 个），当前: ' . count($requests)
+      ));
+    }
+
     $results = [];
 
     foreach ($requests as $jsonRequest) {
@@ -147,7 +161,8 @@ class McpController extends BaseController
       $tokenInfo = null;
 
       if ($this->shouldValidateToken($method)) {
-        $tokenInfo = $this->validateTokenFromGlobals();
+        $tokenExtract = $this->extractTokenFromGlobals();
+        $tokenInfo = $tokenExtract === null ? null : $this->verifyToken($tokenExtract);
         if ($tokenInfo === null) {
           if (!$isNotification) {
             $results[] = McpError::createResponse(
@@ -203,66 +218,35 @@ class McpController extends BaseController
   }
 
   /**
-   * 验证 Token
+   * 验证 Token（按提取类型分发）
    *
-   * @param Request $request 请求对象
+   * @param array $tokenExtract extractToken 返回的结构 {type, token, [item_id]}
    * @return array|null Token 信息，无效返回 null
    */
-  private function validateToken(Request $request): ?array
+  private function verifyToken(array $tokenExtract): ?array
   {
-    $token = $this->extractToken($request);
+    $type = $tokenExtract['type'] ?? '';
+    $token = $tokenExtract['token'] ?? '';
 
-    if ($token === null) {
-      return null;
+    if ($type === 'guest') {
+      return $this->verifyGuestToken($token, (int) ($tokenExtract['item_id'] ?? 0));
     }
 
-    return $this->verifyToken($token);
+    if ($type === 'user_token') {
+      return $this->verifyUserToken($token);
+    }
+
+    // bearer / api_token 均为 ai_token
+    return $this->verifyAiToken($token);
   }
 
   /**
-   * 从全局变量验证 Token（用于批量请求）
-   *
-   * @return array|null
-   */
-  private function validateTokenFromGlobals(): ?array
-  {
-    $token = null;
-
-    // 1. 从 Authorization Header 获取
-    $auth = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
-    if ($auth !== '' && preg_match('/Bearer\s+(.+)/i', $auth, $m)) {
-      $token = trim($m[1]);
-    }
-
-    // 2. 从 X-API-Token Header 获取
-    if ($token === null) {
-      $token = trim($_SERVER['HTTP_X_API_TOKEN'] ?? '');
-    }
-
-    // 3. 从查询参数获取
-    if ($token === null) {
-      $token = trim($_GET['user_token'] ?? '');
-    }
-
-    if ($token === '' || $token === null) {
-      return null;
-    }
-
-    // 验证 Token 格式
-    if (!UserAiToken::isValidTokenFormat($token)) {
-      return null;
-    }
-
-    return $this->verifyToken($token);
-  }
-
-  /**
-   * 验证 Token（带 Redis 缓存）
+   * 验证 ai_token（带 Redis 缓存）
    *
    * @param string $token Token 字符串
    * @return array|null Token 信息，无效返回 null
    */
-  private function verifyToken(string $token): ?array
+  private function verifyAiToken(string $token): ?array
   {
     // 验证 Token 格式
     if (!UserAiToken::isValidTokenFormat($token)) {
@@ -292,29 +276,188 @@ class McpController extends BaseController
   }
 
   /**
-   * 从请求中提取 Token
+   * 验证 showdoc user_token（AI Agent 回环调用时传的是登录用户 user_token）
+   *
+   * 验证通过后构造与 ai_token 相同结构的返回数组，授予与登录用户匹配的权限。
+   * Handler 层的 requireReadPermission/requireWritePermission/requireManagePermission
+   * 会基于真实 uid 的项目角色（owner/admin/editor/readonly）做二次校验。
+   *
+   * @param string $token 登录 user_token
+   * @return array|null
+   */
+  private function verifyUserToken(string $token): ?array
+  {
+    $cacheKey = 'mcp_user_token_cache:' . md5($token);
+    $cache = CacheManager::getInstance();
+    $cached = $cache->get($cacheKey);
+
+    if ($cached !== null) {
+      if ($cached === false) {
+        return null;
+      }
+      return $cached;
+    }
+
+    $row = UserToken::getToken($token);
+
+    if (!$row) {
+      $cache->set($cacheKey, false, 60);
+      return null;
+    }
+
+    // 检查过期
+    $expire = (int) ($row['token_expire'] ?? 0);
+    if ($expire > 0 && $expire < time()) {
+      $cache->set($cacheKey, false, 60);
+      return null;
+    }
+
+    $uid = (int) ($row['uid'] ?? 0);
+    if ($uid <= 0) {
+      $cache->set($cacheKey, false, 60);
+      return null;
+    }
+
+    // 系统管理员（groupid=1）→ admin；其他已登录用户 → write
+    // 项目级管理权限由 Handler 层 requireManagePermission 通过 canManageItem（项目角色）二次校验
+    $user = User::findById($uid);
+    $isSystemAdmin = $user && (int) ($user->groupid ?? 0) === 1;
+
+    $tokenInfo = [
+      'uid'             => $uid,
+      'token'           => $token,
+      'scope'           => 'all',
+      'permission'      => $isSystemAdmin ? 'admin' : 'write',
+      'token_type'      => 'user_token',
+      'allowed_items'   => '[]',
+      'can_create_item' => true,
+      'can_delete_item' => true,
+    ];
+
+    $cache->set($cacheKey, $tokenInfo, 60);
+
+    return $tokenInfo;
+  }
+
+  /**
+   * 验证游客 Token
+   *
+   * 从 ai_chat_sessions 表查询 guest_token + item_id 的绑定关系，验证 session 存在且未删除。
+   * 游客仅授予只读权限，限定在单个项目。
+   *
+   * @param string $guestToken 游客 token
+   * @param int $itemId 项目 ID
+   * @return array|null
+   */
+  private function verifyGuestToken(string $guestToken, int $itemId): ?array
+  {
+    if ($guestToken === '' || $itemId <= 0) {
+      return null;
+    }
+
+    $cacheKey = 'mcp_guest_token_cache:' . md5($guestToken . ':' . $itemId);
+    $cache = CacheManager::getInstance();
+    $cached = $cache->get($cacheKey);
+
+    if ($cached !== null) {
+      if ($cached === false) {
+        return null;
+      }
+      return $cached;
+    }
+
+    $session = AiChatSession::getActiveSessionForGuest($guestToken, $itemId);
+
+    if (!$session) {
+      $cache->set($cacheKey, false, 60);
+      return null;
+    }
+
+    $tokenInfo = [
+      'uid'             => 0,
+      'token'           => $guestToken,
+      'scope'           => 'single_item',
+      'permission'      => 'read',
+      'allowed_items'   => json_encode([$itemId]),
+      'can_create_item' => false,
+      'can_delete_item' => false,
+      'auth_type'       => 'guest',
+    ];
+
+    $cache->set($cacheKey, $tokenInfo, 60);
+
+    return $tokenInfo;
+  }
+
+
+  /**
+   * 从请求中提取 Token（含游客 / user_token 分支）
+   *
+   * 返回结构：
+   *  - 游客：['type' => 'guest', 'token' => $guestToken, 'item_id' => $itemId]
+   *  - 其他：['type' => 'bearer'|'api_token'|'user_token', 'token' => $tokenString]
    *
    * @param Request $request 请求对象
-   * @return string|null
+   * @return array|null
    */
-  private function extractToken(Request $request): ?string
+  private function extractToken(Request $request): ?array
   {
+    $guestToken = trim($request->getHeaderLine('X-Guest-Token'));
+    $guestItemId = (int) trim($request->getHeaderLine('X-Guest-Item-Id'));
+    if ($guestToken !== '' && $guestItemId > 0) {
+      return ['type' => 'guest', 'token' => $guestToken, 'item_id' => $guestItemId];
+    }
+
     // 1. 从 Authorization Header 获取
     $auth = $request->getHeaderLine('Authorization');
     if ($auth !== '' && preg_match('/Bearer\s+(.+)/i', $auth, $m)) {
-      return trim($m[1]);
+      return ['type' => 'bearer', 'token' => trim($m[1])];
     }
 
     // 2. 从 X-API-Token Header 获取
     $token = trim($request->getHeaderLine('X-API-Token'));
     if ($token !== '') {
-      return $token;
+      return ['type' => 'api_token', 'token' => $token];
     }
 
-    // 3. 从查询参数获取
-    $token = trim($this->getParam($request, 'user_token', ''));
+    // 3. 从 X-User-Token Header 获取（AI Agent 内部回环：登录用户 user_token）
+    $token = trim($request->getHeaderLine('X-User-Token'));
     if ($token !== '') {
-      return $token;
+      return ['type' => 'user_token', 'token' => $token];
+    }
+
+    return null;
+  }
+
+  /**
+   * 从全局变量提取 Token（用于批量请求）
+   *
+   * @return array|null
+   */
+  private function extractTokenFromGlobals(): ?array
+  {
+    $guestToken = trim($_SERVER['HTTP_X_GUEST_TOKEN'] ?? '');
+    $guestItemId = (int) trim($_SERVER['HTTP_X_GUEST_ITEM_ID'] ?? '0');
+    if ($guestToken !== '' && $guestItemId > 0) {
+      return ['type' => 'guest', 'token' => $guestToken, 'item_id' => $guestItemId];
+    }
+
+    // 1. 从 Authorization Header 获取
+    $auth = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
+    if ($auth !== '' && preg_match('/Bearer\s+(.+)/i', $auth, $m)) {
+      return ['type' => 'bearer', 'token' => trim($m[1])];
+    }
+
+    // 2. 从 X-API-Token Header 获取
+    $token = trim($_SERVER['HTTP_X_API_TOKEN'] ?? '');
+    if ($token !== '') {
+      return ['type' => 'api_token', 'token' => $token];
+    }
+
+    // 3. 从 X-User-Token Header 获取
+    $token = trim($_SERVER['HTTP_X_USER_TOKEN'] ?? '');
+    if ($token !== '') {
+      return ['type' => 'user_token', 'token' => $token];
     }
 
     return null;
@@ -361,7 +504,7 @@ class McpController extends BaseController
     return $response
       ->withHeader('Access-Control-Allow-Origin', '*')
       ->withHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
-      ->withHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-API-Token');
+      ->withHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-API-Token, X-User-Token, X-Guest-Token, X-Guest-Item-Id');
   }
 
   /**

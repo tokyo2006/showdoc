@@ -33,6 +33,7 @@ export default {
   base_info: '基础信息',
   update_base_info: '更新基础信息',
   member_manage: '成员&团队',
+  ai_assistant_setting: 'AI 助手设置',
   advance_setting: '高级设置',
   open_api: '开放API',
   private_item: '私密项目',

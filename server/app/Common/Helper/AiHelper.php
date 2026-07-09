@@ -325,23 +325,49 @@ class AiHelper
      * @param int $timeout 超时时间（秒），默认120秒
      * @return string|false 成功返回结果字符串，失败返回false
      */
+    /**
+     * 读取统一 AI 配置（新 key open_ai_*，为空时兼容旧 key open_api_* 并自动迁移）
+     *
+     * @return array{key:string,host:string}
+     */
+    private static function getAiCredential(): array
+    {
+        $key = (string) Options::get('open_ai_key', '');
+        if ($key === '' && Options::get('open_api_key', '') !== '') {
+            $key = (string) Options::get('open_api_key', '');
+            Options::set('open_ai_key', $key);
+        }
+
+        $host = (string) Options::get('open_ai_host', '');
+        if ($host === '' && Options::get('open_api_host', '') !== '') {
+            $host = (string) Options::get('open_api_host', '');
+            Options::set('open_ai_host', $host);
+        }
+        if ($host === '') {
+            $host = 'https://api.openai.com';
+        }
+        if (!strstr($host, 'http')) {
+            $host = 'https://' . $host;
+        }
+        if (substr($host, -1) === '/') {
+            $host = substr($host, 0, -1);
+        }
+
+        return ['key' => $key, 'host' => $host];
+    }
+
     public static function callOpenAI(array $messages, int $timeout = 120)
     {
         $aiModelName = Options::get('ai_model_name', 'gpt-4o-mini');
-        $openApiKey = Options::get('open_api_key');
+        $cred = self::getAiCredential();
+        $openApiKey = $cred['key'];
 
         $postData = json_encode([
             'model' => $aiModelName,
             'messages' => $messages,
         ]);
 
-        $openApiHost = Options::get('open_api_host', 'https://api.openai.com');
-        if (!strstr($openApiHost, 'http')) {
-            $openApiHost = 'https://' . $openApiHost;
-        }
-        if (substr($openApiHost, -1) === '/') {
-            $openApiHost = substr($openApiHost, 0, -1);
-        }
+        $openApiHost = $cred['host'];
 
         $curl = curl_init();
         curl_setopt($curl, CURLOPT_ENCODING, '');
@@ -394,7 +420,8 @@ class AiHelper
     public static function generateScript(string $scriptType, string $description, string $apiInfo = '', string $originalScript = '')
     {
         $aiModelName = Options::get('ai_model_name', 'gpt-4o-mini');
-        $openApiKey = Options::get('open_api_key');
+        $cred = self::getAiCredential();
+        $openApiKey = $cred['key'];
 
         // 解析接口信息
         $apiInfoObj = null;
@@ -525,7 +552,8 @@ class AiHelper
     public static function generateTestData(array $params, string $apiInfo = '', int $count = 1)
     {
         $aiModelName = Options::get('ai_model_name', 'gpt-4o-mini');
-        $openApiKey = Options::get('open_api_key');
+        $cred = self::getAiCredential();
+        $openApiKey = $cred['key'];
 
         // 解析接口信息
         $apiInfoObj = null;

@@ -73,7 +73,7 @@ import ArchiveModal from '@/views/modals/item/ArchiveModal'
 import AttornModal from '@/views/modals/item/AttornModal'
 import CopyItemModal from '@/views/modals/item/CopyItemModal'
 import DeleteModal from '@/views/modals/item/DeleteModal'
-import AiKnowledgeBaseModal from '@/views/modals/item/AiKnowledgeBaseModal'
+import AiSettingsModal from '@/views/modals/item/AiSettingsModal'
 import OpenApiModal from '@/views/modals/item/OpenApiModal'
 import Message from '@/components/Message'
 import AlertModal from '@/components/AlertModal'
@@ -149,12 +149,12 @@ const getMenuItems = (item: any): DropdownMenuItem[] => {
       }
     )
 
-    // AI 知识库（仅常规项目）
+    // AI 助手设置（仅常规项目）
     if (item.item_type == '1' || item.item_type == 1) {
       menuItems.push({
-        icon: ['fas', 'fa-brain'],
-        text: t('ai.ai_knowledge_base'),
-        value: 'ai_knowledge_base'
+        icon: ['fas', 'fa-wand-magic-sparkles'],
+        text: t('item.ai_assistant_setting'),
+        value: 'aiSetting'
       })
     }
 
@@ -215,8 +215,8 @@ const handleMenuSelect = async (item: any, menuValue: string) => {
     case 'open_api':
       handleOpenApi(item)
       break
-    case 'ai_knowledge_base':
-      handleAiKnowledgeBase(item)
+    case 'aiSetting':
+      handleAiSetting(item)
       break
     case 'recycle':
       handleRecycle(item)
@@ -286,11 +286,9 @@ const handleOpenApi = async (item: any) => {
   await OpenApiModal(item.item_id)
 }
 
-// AI知识库
-const handleAiKnowledgeBase = async (item: any) => {
-  await AiKnowledgeBaseModal(item.item_id)
-  // AI 配置后需要刷新页面，确保配置（包括展开状态）立即生效
-  window.location.reload()
+// AI 助手设置
+const handleAiSetting = async (item: any) => {
+  await AiSettingsModal(item.item_id)
 }
 
 // 回收站

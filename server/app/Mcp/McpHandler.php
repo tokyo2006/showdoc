@@ -61,7 +61,7 @@ abstract class McpHandler
       return false;
     }
     $permission = $this->tokenInfo['permission'] ?? 'read';
-    return in_array($permission, ['read', 'write']);
+    return in_array($permission, ['read', 'write', 'admin']);
   }
 
   /**
@@ -74,7 +74,8 @@ abstract class McpHandler
     if (!$this->tokenInfo) {
       return false;
     }
-    return ($this->tokenInfo['permission'] ?? '') === 'write';
+    $permission = $this->tokenInfo['permission'] ?? '';
+    return in_array($permission, ['write', 'admin']);
   }
 
   /**
@@ -179,6 +180,11 @@ abstract class McpHandler
    */
   protected function isItemMember(int $itemId): bool
   {
+    // 游客：uid=0 但已通过 guest_token + item_id 验证，scope 检查即可替代成员检查
+    if (($this->tokenInfo['auth_type'] ?? '') === 'guest') {
+      return $this->isItemInScope($itemId);
+    }
+
     if ($this->uid <= 0 || $itemId <= 0) {
       return false;
     }
@@ -397,6 +403,43 @@ abstract class McpHandler
       McpError::throw(
         McpError::NO_EDIT_PERMISSION,
         '权限不足：您在该项目中无编辑权限'
+      );
+    }
+  }
+
+  /**
+   * 要求管理权限（仅 owner/admin，用于删除类等高危操作）
+   *
+   * @param int $itemId 项目 ID
+   * @throws McpException
+   */
+  protected function requireManagePermission(int $itemId): void
+  {
+    if (!$this->canWrite()) {
+      McpError::throw(
+        McpError::TOKEN_OPERATION_DENIED,
+        'Token 不允许执行写入操作'
+      );
+    }
+
+    if (!$this->isItemInScope($itemId)) {
+      McpError::throw(
+        McpError::TOKEN_SCOPE_DENIED,
+        '该项目不在 Token 的权限范围内'
+      );
+    }
+
+    if (!$this->isItemMember($itemId)) {
+      McpError::throw(
+        McpError::NOT_ITEM_MEMBER,
+        '您不是该项目的成员'
+      );
+    }
+
+    if (!$this->canManageItem($itemId)) {
+      McpError::throw(
+        McpError::NO_EDIT_PERMISSION,
+        '权限不足：该操作需要项目管理员权限'
       );
     }
   }

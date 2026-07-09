@@ -458,7 +458,7 @@ class ItemHandler extends McpHandler
         'message' => '项目更新成功',
       ];
     } catch (\Throwable $e) {
-      McpError::throw(McpError::OPERATION_FAILED, '项目更新失败: ' . $e->getMessage());
+      McpError::throw(McpError::OPERATION_FAILED, '项目更新失败，请重试');
     }
   }
 
@@ -480,6 +480,10 @@ class ItemHandler extends McpHandler
     if (!$this->canDeleteItem()) {
       McpError::throw(McpError::TOKEN_OPERATION_DENIED, 'Token 不允许删除项目');
     }
+
+    // 项目级权限校验：覆盖 Token scope（isItemInScope）+ 成员资格 + 管理权限
+    // 与其它 admin 工具一致，防止 scope=selected 的 Token 越权删除范围外的项目
+    $this->requireManagePermission($itemId);
 
     // 获取项目
     $item = Item::findById($itemId);
@@ -512,7 +516,7 @@ class ItemHandler extends McpHandler
         'message' => '项目已删除',
       ];
     } catch (\Throwable $e) {
-      McpError::throw(McpError::OPERATION_FAILED, '项目删除失败: ' . $e->getMessage());
+      McpError::throw(McpError::OPERATION_FAILED, '项目删除失败，请重试');
     }
   }
 }

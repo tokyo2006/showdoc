@@ -33,6 +33,7 @@ class PageHandler extends McpHandler
       'get_page',
       'batch_get_pages',
       'search_pages',
+      'search_all_pages',
       'get_page_template',
       'create_page',
       'create_page_by_comment',
@@ -74,6 +75,9 @@ class PageHandler extends McpHandler
 
       case 'search_pages':
         return $this->searchPages($params);
+
+      case 'search_all_pages':
+        return $this->searchAllPages($params);
 
       case 'get_page_template':
         return $this->getPageTemplate($params);
@@ -206,6 +210,9 @@ class PageHandler extends McpHandler
       McpError::throw(McpError::INVALID_PARAMS, '请提供 page_id、item_id + page_title 或 unique_key');
     }
 
+    // unique_key（单页分享链接）路径：链接本身即访问凭证，不走成员权限校验
+    $viaShareLink = false;
+
     // 如果是通过 unique_key 查找
     if ($pageId <= 0 && $uniqueKey !== '') {
       $single = \App\Model\SinglePage::findByUniqueKey($uniqueKey);
@@ -216,6 +223,7 @@ class PageHandler extends McpHandler
       if ($pageId <= 0) {
         McpError::throw(McpError::RESOURCE_NOT_FOUND, 'unique_key 对应的页面不存在');
       }
+      $viaShareLink = true;
     }
 
     // 如果是通过标题查找（开源版：使用单表 page）
@@ -240,6 +248,11 @@ class PageHandler extends McpHandler
     }
     $itemId = (int) $pageRow->item_id;
 
+    // 检查读取权限：unique_key 分享链接路径豁免（链接本身即凭证）。
+    if (!$viaShareLink) {
+      $this->requireReadPermission($itemId);
+    }
+
     // 使用 Page::findPageByCache 获取页面（带缓存，自动处理分表和解压）
     $page = Page::findPageByCache($pageId, $itemId);
     if (!$page || (int) ($page['is_del'] ?? 0) === 1) {
@@ -249,14 +262,11 @@ class PageHandler extends McpHandler
     // 检查草稿状态（与原后端 PageController::info 一致）
     if (($page['is_draft'] ?? 0) == 1) {
       $authorUid = (int) ($page['author_uid'] ?? 0);
-      $currentUid = (int) ($this->user['uid'] ?? 0);
+      $currentUid = $this->getUid();
       if ($currentUid <= 0 || $currentUid !== $authorUid) {
         McpError::throw(McpError::RESOURCE_NOT_FOUND, '该页面是草稿状态，暂不可访问');
       }
     }
-
-    // 检查读取权限
-    $this->requireReadPermission($itemId);
 
     // 获取项目类型
     $item = DB::table('item')
@@ -373,39 +383,109 @@ class PageHandler extends McpHandler
       $searchMode = 'title';
     }
 
+    // 支持多关键字 OR 搜索（空格分隔）
+    $keywords = array_filter(array_map('trim', preg_split('/\s+/', $query)));
+    if (empty($keywords)) {
+      McpError::throw(McpError::INVALID_PARAMS, '搜索关键字不能为空');
+    }
+
     $result = [];
+    $seenIds = [];  // 用 "item_id:page_id" 去重
     $maxResults = 50;
-    $queryLower = strtolower($query);
 
-    // 如果指定了项目ID，只搜索该项目的分表
     if ($itemId > 0) {
-      // 检查读取权限
+      // 指定了项目ID：在该项目中用所有关键字搜索
       $this->requireReadPermission($itemId);
-
-      $result = $this->searchInItem($itemId, $query, $queryLower, $searchMode, $maxResults);
+      foreach ($keywords as $kw) {
+        $found = $this->searchInItem($itemId, $kw, strtolower($kw), $searchMode, $maxResults);
+        foreach ($found as $page) {
+          $key = $page['item_id'] . ':' . $page['page_id'];
+          if (!isset($seenIds[$key])) {
+            $seenIds[$key] = true;
+            $result[] = $page;
+          }
+        }
+        if (count($result) >= $maxResults) break;
+      }
     } else {
-      // 没有指定项目ID，遍历用户有权限的所有项目
+      // 未指定项目ID：遍历用户有权限的所有项目，每个关键字都搜索
       $uid = $this->getUid();
       $itemIds = $this->getUserItemIds($uid);
 
-      foreach ($itemIds as $itemId) {
-        if (count($result) >= $maxResults) {
-          break;
+      foreach ($keywords as $kw) {
+        $kwLower = strtolower($kw);
+        foreach ($itemIds as $eachItemId) {
+          if (count($result) >= $maxResults) break 2;
+          $remaining = $maxResults - count($result);
+          $found = $this->searchInItem($eachItemId, $kw, $kwLower, $searchMode, $remaining);
+          foreach ($found as $page) {
+            $key = $page['item_id'] . ':' . $page['page_id'];
+            if (!isset($seenIds[$key])) {
+              $seenIds[$key] = true;
+              $result[] = $page;
+            }
+          }
         }
-
-        $remaining = $maxResults - count($result);
-        $found = $this->searchInItem($itemId, $query, $queryLower, $searchMode, $remaining);
-        $result = array_merge($result, $found);
       }
     }
 
     return [
       'query' => $query,
+      'keywords' => $keywords,
       'item_id' => $itemId,
       'search_mode' => $searchMode,
       'pages' => $result,
       'total' => count($result),
     ];
+  }
+
+  /**
+   * 全局搜索页面（语义明确：搜索所有有权限的项目）
+   *
+   * 与 search_pages 不传 item_id 效果相同，但参数语义更明确，
+   * 方便 LLM 理解这是一个全局搜索操作。
+   *
+   * @param array $params 参数
+   *   - keywords: 搜索关键字（必填）
+   *   - mode: 搜索模式（可选，title/content/all，默认 title）
+   *   - limit: 最大返回数量（可选，默认 20，最大 50）
+   * @return array
+   * @throws McpException
+   */
+  private function searchAllPages(array $params): array
+  {
+    $keywords = trim($params['keywords'] ?? '');
+    if ($keywords === '') {
+      McpError::throw(McpError::INVALID_PARAMS, '搜索关键字不能为空');
+    }
+
+    // 搜索模式：title（默认，只搜索标题）、content（只搜索内容）、all（搜索标题和内容）
+    $searchMode = $params['mode'] ?? 'title';
+    if (!in_array($searchMode, ['title', 'content', 'all'], true)) {
+      $searchMode = 'title';
+    }
+
+    // 最大返回数量
+    $limit = (int) ($params['limit'] ?? 20);
+    if ($limit <= 0) {
+      $limit = 20;
+    }
+    $limit = min($limit, 50);
+
+    // 复用 searchPages 的全局搜索逻辑（不传 item_id 即为全局搜索）
+    $result = $this->searchPages([
+      'query' => $keywords,
+      'search_mode' => $searchMode,
+      // 不传 item_id，触发全局搜索路径
+    ]);
+
+    // searchPages 内部硬编码 maxResults=50，这里按用户请求的 limit 截断
+    if ($limit < count($result['pages'])) {
+      $result['pages'] = array_slice($result['pages'], 0, $limit);
+      $result['total'] = $limit;
+    }
+
+    return $result;
   }
 
   /**
@@ -440,6 +520,7 @@ class PageHandler extends McpHandler
           'item_id' => (int) $p->item_id,
           'cat_id' => (int) ($p->cat_id ?? 0),
           'addtime' => $p->addtime ?? '',
+          'snippet' => '', // 标题搜索无 snippet
         ];
       }
 
@@ -485,12 +566,19 @@ class PageHandler extends McpHandler
       }
 
       if ($matched) {
+        // 生成 snippet：从匹配位置前后提取约 200 字
+        $snippet = '';
+        if ($searchMode === 'content' || $searchMode === 'all') {
+          $snippet = $this->extractSnippet($pageContent, $queryLower, 200);
+        }
+
         $result[] = [
           'page_id' => (int) $p->page_id,
           'page_title' => $p->page_title,
           'item_id' => (int) $p->item_id,
           'cat_id' => (int) ($p->cat_id ?? 0),
           'addtime' => $p->addtime ?? '',
+          'snippet' => $snippet,
         ];
       }
 
@@ -502,6 +590,42 @@ class PageHandler extends McpHandler
     unset($pages);
 
     return $result;
+  }
+
+  /**
+   * 从文本中提取关键字附近的摘要
+   *
+   * @param string $content 完整内容
+   * @param string $queryLower 小写关键字
+   * @param int $length 摘要目标长度（字符数）
+   * @return string
+   */
+  private function extractSnippet(string $content, string $queryLower, int $length = 200): string
+  {
+    // 去除 HTML/Markdown 标记，取纯文本
+    $text = strip_tags($content);
+    $text = preg_replace('/\s+/', ' ', $text);
+    $textLower = strtolower($text);
+
+    $pos = strpos($textLower, $queryLower);
+    if ($pos === false) {
+      // 未找到匹配，返回开头部分
+      return mb_substr($text, 0, $length) . (mb_strlen($text) > $length ? '...' : '');
+    }
+
+    // 以匹配位置为中心，取前后各半
+    $half = (int) ($length / 2);
+    $start = max(0, $pos - $half);
+    $snippet = mb_substr($text, $start, $length);
+
+    if ($start > 0) {
+      $snippet = '...' . $snippet;
+    }
+    if ($start + $length < mb_strlen($text)) {
+      $snippet .= '...';
+    }
+
+    return trim($snippet);
   }
 
   /**
@@ -1623,8 +1747,8 @@ MARKDOWN;
 
     $itemId = (int) $page->item_id;
 
-    // 检查写入权限
-    $this->requireWritePermission($itemId);
+    // 检查管理权限（仅项目管理员）
+    $this->requireManagePermission($itemId);
 
     try {
       // 软删除页面
@@ -2220,8 +2344,8 @@ MARKDOWN;
 
     $itemId = (int) $page->item_id;
 
-    // 检查编辑权限
-    $this->requireWritePermission($itemId);
+    // 检查管理权限（仅项目管理员）
+    $this->requireManagePermission($itemId);
 
     // 删除分享链接
     DB::table('single_page')

@@ -327,7 +327,7 @@
         <!-- AI相关设置 -->
         <template #ai>
           <div class="tab-content">
-            <!-- AI编辑助手配置 -->
+            <!-- AI 服务配置（统一：文档编辑 AI / AI Agent 共用） -->
             <div class="section-title">{{ $t('admin.ai_edit_assistant') }}</div>
 
             <a-alert
@@ -340,29 +340,30 @@
 
             <div class="form-row">
               <label class="form-label">
-                {{ $t('admin.ai_edit_assistant_key') }}
-                <a-tooltip :title="$t('admin.ai_edit_assistant_key_tips')" placement="top">
-                  <QuestionCircleOutlined class="question-icon clickable" @click="openLink('https://www.showdoc.com.cn/p/30dd0637811cd5c690ffd547f3c46889')" />
-                </a-tooltip>
-              </label>
-              <CommonInput
-                v-model="form.open_api_key"
-                class="form-input"
-                :placeholder="$t('admin.ai_edit_assistant_key_placeholder')"
-              />
-            </div>
-
-            <div class="form-row">
-              <label class="form-label">
                 {{ $t('admin.ai_edit_assistant_host') }}
                 <a-tooltip :title="$t('admin.ai_edit_assistant_host_tips')" placement="top">
                   <QuestionCircleOutlined class="question-icon clickable" @click="openLink('https://github.com/star7th/showdoc/issues/1904')" />
                 </a-tooltip>
               </label>
               <CommonInput
-                v-model="form.open_api_host"
+                v-model="form.open_ai_host"
                 class="form-input"
                 :placeholder="$t('admin.ai_edit_assistant_host_placeholder')"
+              />
+            </div>
+
+            <div class="form-row">
+              <label class="form-label">
+                {{ $t('admin.ai_edit_assistant_key') }}
+                <a-tooltip :title="$t('admin.ai_edit_assistant_key_tips')" placement="top">
+                  <QuestionCircleOutlined class="question-icon clickable" @click="openLink('https://www.showdoc.com.cn/p/30dd0637811cd5c690ffd547f3c46889')" />
+                </a-tooltip>
+              </label>
+              <CommonInput
+                v-model="form.open_ai_key"
+                type="password"
+                class="form-input"
+                :placeholder="$t('admin.ai_edit_assistant_key_placeholder')"
               />
             </div>
 
@@ -377,64 +378,61 @@
               />
             </div>
 
-            <!-- AI 知识库服务配置 -->
-            <div class="section-title">{{ $t('admin.ai_knowledge_base_service') }}</div>
-
-            <a-alert
-              type="warning"
-              :closable="false"
-              show-icon
-              class="warning-alert"
-            >
-              <template #message>
-                <div class="alert-content">
-                  <div class="alert-text">{{ $t('admin.ai_knowledge_base_service_desc') }}</div>
-                  <a
-                    class="alert-link"
-                    @click="openLink('https://github.com/star7th/showdoc-ai-service')"
-                  >
-                    {{ $t('admin.ai_knowledge_base_install_link') }}
-                  </a>
-                </div>
-              </template>
-            </a-alert>
-
             <div class="form-row">
               <label class="form-label">
-                {{ $t('admin.ai_service_url') }}
-                <a-tooltip :title="$t('admin.ai_service_url_tips')" placement="top">
+                {{ $t('admin.ai_system_prompt') }}
+                <a-tooltip :title="$t('admin.ai_system_prompt_tips')" placement="top">
                   <QuestionCircleOutlined class="question-icon" />
                 </a-tooltip>
               </label>
-              <CommonInput
-                v-model="form.ai_service_url"
+              <CommonTextarea
+                v-model="form.ai_system_prompt"
                 class="form-input"
-                :placeholder="$t('admin.ai_service_url_placeholder')"
+                :rows="3"
+                :placeholder="$t('admin.ai_system_prompt_placeholder')"
               />
             </div>
 
             <div class="form-row">
               <label class="form-label">
-                {{ $t('admin.ai_service_token') }}
-                <a-tooltip :title="$t('admin.ai_service_token_tips')" placement="top">
+                {{ $t('admin.ai_max_message_length') }}
+                <a-tooltip :title="$t('admin.ai_max_message_length_tips')" placement="top">
                   <QuestionCircleOutlined class="question-icon" />
                 </a-tooltip>
               </label>
               <CommonInput
-                v-model="form.ai_service_token"
-                type="password"
+                v-model="form.ai_max_message_length"
                 class="form-input"
-                :placeholder="$t('admin.ai_service_token_placeholder')"
+                :placeholder="$t('admin.ai_max_message_length_placeholder')"
               />
             </div>
 
-            <div class="form-row form-actions">
-              <CommonButton
-                theme="dark"
-                :text="$t('admin.ai_test_connection')"
-                :leftIcon="['fas', 'link']"
-                :loading="testing"
-                @click="handleTestAiService"
+            <div class="form-row">
+              <label class="form-label">
+                {{ $t('admin.ai_tool_rounds') }}
+                <a-tooltip :title="$t('admin.ai_tool_rounds_tips')" placement="top">
+                  <QuestionCircleOutlined class="question-icon" />
+                </a-tooltip>
+              </label>
+              <CommonInput
+                v-model="form.ai_tool_rounds"
+                class="form-input"
+                :placeholder="$t('admin.ai_tool_rounds_placeholder')"
+              />
+            </div>
+
+            <div class="form-row">
+              <label class="form-label">
+                {{ $t('admin.ai_welcome_message') }}
+                <a-tooltip :title="$t('admin.ai_welcome_message_tips')" placement="top">
+                  <QuestionCircleOutlined class="question-icon" />
+                </a-tooltip>
+              </label>
+              <CommonTextarea
+                v-model="form.ai_welcome_message"
+                class="form-input"
+                :rows="3"
+                :placeholder="$t('admin.ai_welcome_message_placeholder')"
               />
             </div>
           </div>
@@ -486,16 +484,16 @@ import { message } from 'ant-design-vue'
 import { QuestionCircleOutlined } from '@ant-design/icons-vue'
 import CommonInput from '@/components/CommonInput.vue'
 import CommonButton from '@/components/CommonButton.vue'
+import CommonTextarea from '@/components/CommonTextarea.vue'
 import CommonSwitch from '@/components/CommonSwitch.vue'
 import CommonTab from '@/components/CommonTab.vue'
-import { loadSystemConfig, saveSystemConfig, testAiService, getAdminItemList } from '@/models/admin'
+import { loadSystemConfig, saveSystemConfig, getAdminItemList } from '@/models/admin'
 import { normalizeToBinaryString } from '@/utils/system'
 
 const { t, locale } = useI18n()
 
 // 数据状态
 const activeTab = ref('basic')
-const testing = ref(false)
 const itemList = ref<any[]>([])
 
 // Tab 选项
@@ -528,11 +526,15 @@ const form = reactive({
   home_page: '1',
   home_item: '',
   site_url: '',
-  open_api_key: '',
-  open_api_host: '',
   ai_model_name: '',
   ai_service_url: '',
   ai_service_token: '',
+  open_ai_host: '',
+  open_ai_key: '',
+  ai_system_prompt: '',
+  ai_max_message_length: 8000,
+  ai_tool_rounds: 10,
+  ai_welcome_message: '',
   force_login: '0',
   enable_public_square: '0',
   strong_password_enabled: '0',
@@ -574,11 +576,19 @@ const loadConfig = async () => {
     form.home_page = String(data.home_page || '1')
     form.home_item = data.home_item || ''
     form.site_url = data.site_url || ''
-    form.open_api_key = data.open_api_key || ''
-    form.open_api_host = data.open_api_host || ''
     form.ai_model_name = data.ai_model_name || ''
     form.ai_service_url = data.ai_service_url || ''
     form.ai_service_token = data.ai_service_token || ''
+    form.open_ai_host = data.open_ai_host || ''
+    form.open_ai_key = data.open_ai_key || ''
+    form.ai_system_prompt = data.ai_system_prompt || ''
+    form.ai_max_message_length = data.ai_max_message_length
+      ? parseInt(String(data.ai_max_message_length))
+      : 8000
+    form.ai_tool_rounds = data.ai_tool_rounds
+      ? parseInt(String(data.ai_tool_rounds))
+      : 10
+    form.ai_welcome_message = data.ai_welcome_message || ''
     form.force_login = normalizeToBinaryString(data.force_login)
     form.enable_public_square = normalizeToBinaryString(data.enable_public_square)
     form.strong_password_enabled = normalizeToBinaryString(data.strong_password_enabled)
@@ -612,11 +622,15 @@ const handleSave = async () => {
       site_url: form.site_url,
       home_page: form.home_page,
       home_item: form.home_item,
-      open_api_key: form.open_api_key,
-      open_api_host: form.open_api_host,
       ai_model_name: form.ai_model_name,
       ai_service_url: form.ai_service_url,
       ai_service_token: form.ai_service_token,
+      open_ai_host: form.open_ai_host,
+      open_ai_key: form.open_ai_key,
+      ai_system_prompt: form.ai_system_prompt,
+      ai_max_message_length: form.ai_max_message_length,
+      ai_tool_rounds: form.ai_tool_rounds,
+      ai_welcome_message: form.ai_welcome_message,
       force_login: form.force_login === '1',
       enable_public_square: form.enable_public_square === '1',
       strong_password_enabled: form.strong_password_enabled === '1',
@@ -632,34 +646,6 @@ const handleSave = async () => {
     message.success(t('common.save_success'))
   } catch (error) {
     // request 已自动弹出后端错误信息
-  }
-}
-
-const handleTestAiService = async () => {
-  if (!form.ai_service_url) {
-    message.warning(t('admin.ai_service_url_required'))
-    return
-  }
-  if (!form.ai_service_token) {
-    message.warning(t('admin.ai_service_token_required'))
-    return
-  }
-
-  testing.value = true
-  try {
-    const res: any = await testAiService({
-      ai_service_url: form.ai_service_url,
-      ai_service_token: form.ai_service_token
-    })
-    if (res.error_code === 0) {
-      message.success(t('admin.ai_connection_success'))
-    } else {
-      message.error(res.error_message || t('admin.ai_connection_failed'))
-    }
-  } catch (error: any) {
-    message.error(`${t('admin.ai_connection_failed')}: ${error.message || t('admin.unknown_error')}`)
-  } finally {
-    testing.value = false
   }
 }
 

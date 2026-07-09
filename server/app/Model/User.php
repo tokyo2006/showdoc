@@ -172,28 +172,6 @@ class User
     }
 
     /**
-     * 用户是否已经完成支付实名认证
-     *
-     * @param int $uid 用户 ID
-     * @return bool
-     */
-    public static function isPaymentVerify(int $uid): bool
-    {
-        if ($uid <= 0) {
-            return false;
-        }
-
-        $user = self::findById($uid);
-        if (!$user) {
-            return false;
-        }
-
-        // 检查支付实名认证字段（根据实际表结构调整）
-        $paymentVerify = (int) ($user->payment_verify ?? 0);
-        return $paymentVerify > 0;
-    }
-
-    /**
      * 获取用户的协作成员数（包括团队成员和项目成员，去重）
      *
      * @param int $uid 用户 ID
@@ -424,26 +402,6 @@ class User
         // 开源版不支持微信绑定功能
         // 注意：如果需要微信功能，请使用主版（showdoc.cc）
         return false;
-    }
-
-    /**
-     * 更新用户的支付实名认证状态
-     *
-     * @param int $uid 用户ID
-     * @param int $paymentVerify 支付实名认证状态（1=已认证，0=未认证）
-     * @return bool 是否成功
-     */
-    public static function updatePaymentVerify(int $uid, int $paymentVerify = 1): bool
-    {
-        if ($uid <= 0) {
-            return false;
-        }
-
-        $affected = DB::table('user')
-            ->where('uid', $uid)
-            ->update(['payment_verify' => $paymentVerify]);
-
-        return $affected > 0;
     }
 
     /**

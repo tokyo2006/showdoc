@@ -14,6 +14,5 @@ export default {
   click_to_view: '点击查看',
   notification: '通知',
   you_have_unread_announcement: '你有未读的公告消息，点此查看',
-  vip_expiring_notice: '你在showdoc购买的付费版资格很快过期了，你可以点此进入用户中心进行续费(如已续费请忽略该通知)',
 }
 

@@ -275,3 +275,35 @@ export function resetItemApiKey(itemId: string) {
     'form'
   )
 }
+
+// 获取项目级 AI 配置
+export function getItemAiConfig(itemId: string | number) {
+  return request(
+    '/api/item/getAiConfig',
+    {
+      item_id: itemId
+    },
+    'post',
+    true,
+    'form'
+  )
+}
+
+// 保存项目级 AI 配置
+export function saveItemAiConfig(params: {
+  item_id: number | string
+  enabled?: number
+  guest_enabled?: number
+  guest_credit_limit?: number
+  welcome_message?: string
+  system_prompt?: string
+  dialog_collapsed?: number
+}) {
+  return request(
+    '/api/item/setAiConfig',
+    params,
+    'post',
+    true,
+    'json'
+  )
+}

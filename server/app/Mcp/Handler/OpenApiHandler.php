@@ -138,6 +138,14 @@ class OpenApiHandler extends McpHandler
   /**
    * 从 URL 获取内容
    *
+   * 安全措施：
+   * 1. 仅允许 http/https scheme
+   * 2. 解析域名并过滤内网/回环/链路本地 IP
+   * 3. 禁用 FOLLOWLOCATION，手动处理重定向（最多 3 次），每次对重定向目标重复 IP 过滤
+   * 4. 开启 SSL_VERIFYPEER
+   * 5. DNS Rebinding 防护：用 PHP 解析一次 DNS 并校验后，通过 CURLOPT_RESOLVE
+   *    把已校验的 IP 固定给 cURL，避免 cURL 再次独立解析 DNS 造成 TOCTOU 绕过
+   *
    * @param string $url URL 地址
    * @return string
    * @throws McpException
@@ -149,22 +157,56 @@ class OpenApiHandler extends McpHandler
       McpError::throw(McpError::INVALID_PARAMS, '无效的 URL 格式');
     }
 
-    // 使用 cURL 获取内容
-    $ch = curl_init();
-    curl_setopt($ch, CURLOPT_URL, $url);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_TIMEOUT, 30);
-    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-    curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
-    curl_setopt($ch, CURLOPT_MAXREDIRS, 5);
+    // scheme 白名单：仅允许 http/https
+    $scheme = strtolower(parse_url($url, PHP_URL_SCHEME) ?? '');
+    if (!in_array($scheme, ['http', 'https'], true)) {
+      McpError::throw(McpError::INVALID_PARAMS, '仅支持 http/https 协议');
+    }
 
-    $content = curl_exec($ch);
-    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    $error = curl_error($ch);
-    curl_close($ch);
+    // 使用 cURL 获取内容（手动处理重定向，每轮在循环顶部解析+校验+固定 IP）
+    $maxRedirects = 3;
+    $currentUrl = $url;
+    $content = null;
+    $httpCode = 0;
+    $error = '';
 
-    if ($error) {
-      McpError::throw(McpError::OPERATION_FAILED, '获取 OpenAPI 文档失败: ' . $error);
+    for ($i = 0; $i <= $maxRedirects; $i++) {
+      // SSRF 防护：解析并校验主机 IP，返回已校验的 IP 用于 pinning（防 DNS rebinding TOCTOU）
+      $pinnedIp = $this->resolveAndValidateHost($currentUrl);
+      $resolveEntry = $this->buildResolveEntry($currentUrl, $pinnedIp);
+
+      $ch = curl_init();
+      curl_setopt($ch, CURLOPT_URL, $currentUrl);
+      // 将已校验的 IP 固定给 cURL，确保实际连接的就是刚才校验过的 IP
+      curl_setopt($ch, CURLOPT_RESOLVE, [$resolveEntry]);
+      curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+      curl_setopt($ch, CURLOPT_TIMEOUT, 30);
+      curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
+      curl_setopt($ch, CURLOPT_FOLLOWLOCATION, false);
+      curl_setopt($ch, CURLOPT_MAXREDIRS, $maxRedirects);
+
+      $content = curl_exec($ch);
+      $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+      $error = curl_error($ch);
+      $redirectUrl = curl_getinfo($ch, CURLINFO_REDIRECT_URL);
+      curl_close($ch);
+
+      if ($error) {
+        McpError::throw(McpError::OPERATION_FAILED, '获取 OpenAPI 文档失败: ' . $error);
+      }
+
+      // 处理重定向（3xx）：此处仅校验 scheme，host 的 IP 校验+pinning 在下一轮循环顶部完成
+      if ($httpCode >= 300 && $httpCode < 400 && $redirectUrl) {
+        $redirectScheme = strtolower(parse_url($redirectUrl, PHP_URL_SCHEME) ?? '');
+        if (!in_array($redirectScheme, ['http', 'https'], true)) {
+          McpError::throw(McpError::INVALID_PARAMS, '重定向目标仅支持 http/https 协议');
+        }
+        $currentUrl = $redirectUrl;
+        continue;
+      }
+
+      // 非重定向，跳出循环
+      break;
     }
 
     if ($httpCode !== 200) {
@@ -172,6 +214,140 @@ class OpenApiHandler extends McpHandler
     }
 
     return $content;
+  }
+
+  /**
+   * 解析并校验 URL 主机，返回第一个已校验（非内网）的 IP 地址
+   *
+   * 防止 DNS rebinding 在「PHP 校验」与「cURL 再次解析」之间的 TOCTOU 窗口。
+   *
+   * @param string $url
+   * @return string 已校验的 IP 地址
+   * @throws McpException 主机名无法解析或解析到内网地址时抛出
+   */
+  private function resolveAndValidateHost(string $url): string
+  {
+    $host = parse_url($url, PHP_URL_HOST);
+    if (!$host) {
+      McpError::throw(McpError::INVALID_PARAMS, '无法解析 URL 主机名');
+    }
+
+    // 规范化 IPv6 字面量的方括号
+    $host = trim($host, '[]');
+
+    // 如果主机本身是 IP 地址，直接校验并返回
+    if (filter_var($host, FILTER_VALIDATE_IP)) {
+      if ($this->isInternalIp($host)) {
+        McpError::throw(McpError::INVALID_PARAMS, '不允许访问内网或回环地址');
+      }
+      return $host;
+    }
+
+    // 域名解析：检查所有 A/AAAA 记录
+    $records = @dns_get_record($host, DNS_A | DNS_AAAA);
+    if (empty($records)) {
+      McpError::throw(McpError::INVALID_PARAMS, '无法解析域名或域名不存在');
+    }
+
+    $pinnedIp = null;
+    foreach ($records as $record) {
+      $ip = $record['ip'] ?? $record['ipv6'] ?? '';
+      if ($ip === '') {
+        continue;
+      }
+      if ($this->isInternalIp($ip)) {
+        McpError::throw(McpError::INVALID_PARAMS, '域名解析到内网地址，不允许访问');
+      }
+      if ($pinnedIp === null) {
+        $pinnedIp = $ip;
+      }
+    }
+
+    if ($pinnedIp === null) {
+      McpError::throw(McpError::INVALID_PARAMS, '域名未解析到有效的 IP 地址');
+    }
+
+    return $pinnedIp;
+  }
+
+  /**
+   * 构建 cURL CURLOPT_RESOLVE 条目（host:port:ip）
+   */
+  private function buildResolveEntry(string $url, string $ip): string
+  {
+    $host = trim((string) parse_url($url, PHP_URL_HOST), '[]');
+    $scheme = strtolower((string) parse_url($url, PHP_URL_SCHEME));
+    $port = (int) parse_url($url, PHP_URL_PORT);
+    if ($port <= 0) {
+      $port = ($scheme === 'https') ? 443 : 80;
+    }
+    return $host . ':' . $port . ':' . $ip;
+  }
+
+  /**
+   * 判断 IP 是否为内网/回环/链路本地地址
+   * 包含 IPv4-mapped IPv6（::ffff:a.b.c.d）检查
+   *
+   * @param string $ip
+   * @return bool
+   */
+  private function isInternalIp(string $ip): bool
+  {
+    // IPv4 校验
+    if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+      $noPriv = filter_var(
+        $ip,
+        FILTER_VALIDATE_IP,
+        FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE
+      );
+      if ($noPriv === false) {
+        return true;
+      }
+      if (strpos($ip, '169.254.') === 0) {
+        return true;
+      }
+      return false;
+    }
+
+    // IPv6 校验
+    if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6)) {
+      if ($ip === '::1') {
+        return true;
+      }
+      $packed = inet_pton($ip);
+      if ($packed !== false) {
+        // IPv4-mapped IPv6 地址检查（::ffff:a.b.c.d），防止 SSRF 绕过
+        if (strlen($packed) === 16) {
+          $isMapped = true;
+          for ($i = 0; $i < 10; $i++) {
+            if (ord($packed[$i]) !== 0) {
+              $isMapped = false;
+              break;
+            }
+          }
+          if ($isMapped && ord($packed[10]) === 0xFF && ord($packed[11]) === 0xFF) {
+            $ipv4 = sprintf('%d.%d.%d.%d',
+              ord($packed[12]), ord($packed[13]),
+              ord($packed[14]), ord($packed[15])
+            );
+            return $this->isInternalIp($ipv4);
+          }
+        }
+        // fc00::/7 唯一本地地址（ULA）
+        $firstByte = ord($packed[0]);
+        if (($firstByte & 0xFE) === 0xFC) {
+          return true;
+        }
+        // fe80::/10 链路本地
+        if (($firstByte === 0xFE) && ((ord($packed[1]) & 0xC0) === 0x80)) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    // 无法识别的 IP 格式，保守拒绝
+    return true;
   }
 
   /**

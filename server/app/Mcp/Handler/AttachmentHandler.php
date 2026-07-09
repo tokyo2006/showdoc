@@ -76,6 +76,15 @@ class AttachmentHandler extends McpHandler
     $this->requireWritePermission($itemId);
 
     $pageId = (int) ($params['page_id'] ?? 0);
+
+    // 校验 page_id 归属：防止将附件关联到其它项目的页面（数据污染）
+    if ($pageId > 0) {
+      $pageRow = DB::table('page')->where('page_id', $pageId)->first();
+      if (!$pageRow || (int) $pageRow->item_id !== $itemId) {
+        McpError::throw(McpError::INVALID_PARAMS, 'page_id 不属于该项目');
+      }
+    }
+
     $fileBase64 = trim($params['file_base64'] ?? '');
     $fileName = trim($params['file_name'] ?? '');
 
@@ -364,8 +373,8 @@ class AttachmentHandler extends McpHandler
     $fileId = (int) ($file->file_id ?? 0);
     $itemId = (int) ($file->item_id ?? 0);
 
-    // 检查写入权限
-    $this->requireWritePermission($itemId);
+    // 检查管理权限（仅项目管理员）
+    $this->requireManagePermission($itemId);
 
     // 删除文件
     $deleted = Attachment::deleteFile($fileId);

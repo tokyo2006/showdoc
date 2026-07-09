@@ -97,7 +97,7 @@ import ImportFileModal from '@/views/modals/item/ImportFileModal/index'
 import ExportFileModal from '@/views/modals/item/ExportFileModal/index'
 import RecycleModal from '@/views/modals/item/RecycleModal/index'
 import ChangeLogModal from '@/views/modals/item/ChangeLogModal/index'
-import AiKnowledgeBaseModal from '@/views/modals/item/AiKnowledgeBaseModal/index'
+import AiSettingsModal from '@/views/modals/item/AiSettingsModal/index'
 import OpenApiModal from '@/views/modals/item/OpenApiModal/index'
 import ArchiveModal from '@/views/modals/item/ArchiveModal/index'
 import AttornModal from '@/views/modals/item/AttornModal/index'
@@ -167,9 +167,9 @@ const menuItems = computed<DropdownMenuItem[]>(() => [
     value: 'setting'
   },
   {
-    icon: ['far', 'fa-brain'],
-    text: t('ai.ai_knowledge_base'),
-    value: 'ai'
+    icon: ['fas', 'fa-wand-magic-sparkles'],
+    text: t('item.ai_assistant_setting'),
+    value: 'aiSetting'
   },
   {
     icon: ['far', 'fa-terminal'],
@@ -289,11 +289,9 @@ const handleMenuClick = async ({ key }: { key: string }) => {
       }
       break
 
-    case 'ai':
+    case 'aiSetting':
       if (props.itemInfo) {
-        await AiKnowledgeBaseModal(props.itemInfo.item_id)
-        // AI 配置后需要刷新页面，确保配置（包括展开状态）立即生效
-        window.location.reload()
+        await AiSettingsModal(props.itemInfo.item_id)
       }
       break
 

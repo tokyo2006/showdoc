@@ -1,11 +1,14 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         bootstrap="tests/mock/bootstrap.php"
+         bootstrap="tests/Agent/bootstrap.php"
          colors="true"
          xsi:noNamespaceSchemaLocation="https://schema.phpunit.de/9.6/phpunit.xsd">
   <testsuites>
     <testsuite name="Mock Regex Tests">
       <directory>tests/mock</directory>
+    </testsuite>
+    <testsuite name="Agent Tests">
+      <directory>tests/Agent</directory>
     </testsuite>
   </testsuites>
 </phpunit>

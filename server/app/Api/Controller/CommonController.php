@@ -138,7 +138,11 @@ class CommonController extends BaseController
     {
         $homePage   = \App\Model\Options::get('home_page', '');
         $homeItem   = \App\Model\Options::get('home_item', '');
-        $openApiKey = \App\Model\Options::get('open_api_key', '');
+        // 判断 AI 是否启用：优先新 key，兼容旧 key
+        $openApiKey = \App\Model\Options::get('open_ai_key', '');
+        if ($openApiKey === '') {
+            $openApiKey = \App\Model\Options::get('open_api_key', '');
+        }
         $beian      = \App\Model\Options::get('beian', '');
         $registerOpen = \App\Model\Options::get('register_open');
 

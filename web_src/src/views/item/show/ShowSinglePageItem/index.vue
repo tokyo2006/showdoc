@@ -93,7 +93,7 @@
     </div>
 
     <!-- 回到顶部按钮 -->
-    <CommonTop :right="isMobile ? 20 : 40" :bottom="isMobile ? 20 : 40" />
+    <CommonTop :right="isMobile ? 20 : 40" :bottom="isMobile ? 20 : 100" />
 
     <!-- 附件列表弹窗 -->
     <AttachmentModal

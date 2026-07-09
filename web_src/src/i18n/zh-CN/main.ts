@@ -15,7 +15,6 @@ import attachment from './attachment'
 import header from './header'
 import admin from './admin'
 import ai from './ai'
-import wechat from './wechat'
 import pageComment from './pageComment'
 import pageFeedback from './pageFeedback'
 import feedback from './feedback'
@@ -35,7 +34,6 @@ export default {
   header,
   admin,
   ai,
-  wechat,
   pageComment,
   pageFeedback,
   feedback,

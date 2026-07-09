@@ -652,6 +652,9 @@ class ItemController extends BaseController
 
         $data['group_ids'] = $groupIds;
 
+        // 返回项目级 AI 配置，供前端设置页使用
+        $data['ai_config'] = \App\Model\ItemAiConfig::getConfig((int) $itemId);
+
         return $this->success($response, $data);
     }
 
@@ -706,6 +709,16 @@ class ItemController extends BaseController
         }
 
         return $this->success($response, $config);
+    }
+
+    /**
+     * 获取项目 AI 配置（新接口名，与主版前端 AiSettingsModal 对齐）。
+     * 路径拍平：/api/item/getAiConfig → 本方法。
+     * 内部直接委托 getAiKnowledgeBaseConfig，保持行为一致。
+     */
+    public function getAiConfig(Request $request, Response $response): Response
+    {
+        return $this->getAiKnowledgeBaseConfig($request, $response);
     }
 
     /**
@@ -1375,8 +1388,18 @@ class ItemController extends BaseController
         }
 
         $welcomeMessage = $this->getParam($request, 'welcome_message', null);
-        if ($welcomeMessage !== null && $welcomeMessage !== '') {
+        if ($welcomeMessage !== null) {
             $data['welcome_message'] = (string) $welcomeMessage;
+        }
+
+        $systemPrompt = $this->getParam($request, 'system_prompt', null);
+        if ($systemPrompt !== null) {
+            $data['system_prompt'] = (string) $systemPrompt;
+        }
+
+        $guestEnabled = $this->getParam($request, 'guest_enabled', null);
+        if ($guestEnabled !== null) {
+            $data['guest_enabled'] = (int) $guestEnabled;
         }
 
         if (empty($data)) {
@@ -1389,6 +1412,16 @@ class ItemController extends BaseController
         }
 
         return $this->success($response, ['success' => true]);
+    }
+
+    /**
+     * 设置项目 AI 配置（新接口名，与主版前端 AiSettingsModal 对齐）。
+     * 路径拍平：/api/item/setAiConfig → 本方法。
+     * 内部直接委托 setAiKnowledgeBaseConfig，保持行为一致。
+     */
+    public function setAiConfig(Request $request, Response $response): Response
+    {
+        return $this->setAiKnowledgeBaseConfig($request, $response);
     }
 
     /**

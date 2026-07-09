@@ -85,7 +85,7 @@ class RunapiPageHandler extends McpHandler
 
     if (($page['is_draft'] ?? 0) == 1) {
       $authorUid = (int) ($page['author_uid'] ?? 0);
-      $currentUid = (int) ($this->user['uid'] ?? 0);
+      $currentUid = $this->getUid();
       if ($currentUid <= 0 || $currentUid !== $authorUid) {
         McpError::throw(McpError::RESOURCE_NOT_FOUND, '该页面是草稿状态，暂不可访问');
       }

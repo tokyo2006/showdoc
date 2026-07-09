@@ -89,6 +89,7 @@ import ArchiveModal from '@/views/modals/item/ArchiveModal/index'
 import AttornModal from '@/views/modals/item/AttornModal/index'
 import DeleteModal from '@/views/modals/item/DeleteModal/index'
 import ChangeLogModal from '@/views/modals/item/ChangeLogModal/index'
+import AiSettingsModal from '@/views/modals/item/AiSettingsModal/index'
 
 // Props
 interface Props {
@@ -124,6 +125,11 @@ const menuItems = computed(() => [
     value: 'update',
     icon: ['far', 'fa-edit'],
     text: t('item.base_info'),
+  },
+  {
+    value: 'aiSetting',
+    icon: ['fas', 'fa-wand-magic-sparkles'],
+    text: t('item.ai_assistant_setting'),
   },
   {
     value: 'archive',
@@ -177,6 +183,12 @@ const handleDropdownSelect = async (item: any) => {
         await CreateItemModal({
           item_id: props.itemInfo.item_id,
         })
+      }
+      break
+
+    case 'aiSetting':
+      if (props.itemInfo) {
+        await AiSettingsModal(props.itemInfo.item_id)
       }
       break
 

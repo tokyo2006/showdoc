@@ -37,22 +37,6 @@ const getUnreadMessage = async () => {
       if (popup.value) {
         let msg = ''
 
-        // VIP 会员到期提醒
-        if (json['remind'].object_type == 'vip') {
-          msg = t('message.vip_expiring_notice')
-          let routeUrl = router.resolve({
-            path: '/user/setting'
-          })
-          const toUrl = routeUrl.href
-          browserNotify(
-            msg,
-            json['remind'].from_uid,
-            json['remind'].message_content_id,
-            toUrl
-          )
-          return
-        }
-
         // 根据action_type显示不同的消息
         if (
           json['remind'].action_type == 'comment' ||

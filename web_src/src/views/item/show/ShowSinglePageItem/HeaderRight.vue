@@ -100,6 +100,7 @@ import ArchiveModal from '@/views/modals/item/ArchiveModal/index'
 import AttornModal from '@/views/modals/item/AttornModal/index'
 import DeleteModal from '@/views/modals/item/DeleteModal/index'
 import HistoryModal from '@/views/modals/page/HistoryModal/index'
+import AiSettingsModal from '@/views/modals/item/AiSettingsModal/index'
 import LanguageToggle from '@/components/LanguageToggle.vue'
 
 // Props
@@ -155,6 +156,11 @@ const menuItems = computed(() => {
       value: 'update',
       icon: ['far', 'fa-edit'],
       text: t('item.updateBaseInfo'),
+    },
+    {
+      value: 'aiSetting',
+      icon: ['fas', 'fa-wand-magic-sparkles'],
+      text: t('item.ai_assistant_setting'),
     },
     {
       value: 'attorn',
@@ -241,6 +247,12 @@ const handleDropdownSelect = async (item: any) => {
         await CreateItemModal({
           item_id: props.itemInfo.item_id,
         })
+      }
+      break
+
+    case 'aiSetting':
+      if (props.itemInfo) {
+        await AiSettingsModal(props.itemInfo.item_id)
       }
       break
 

@@ -15,7 +15,7 @@ class ItemAiConfig
     public static function getConfig(int $itemId): array
     {
         if ($itemId <= 0) {
-            return ['enabled' => 0, 'dialog_collapsed' => 1];
+            return ['enabled' => 0, 'dialog_collapsed' => 1, 'guest_enabled' => 0, 'welcome_message' => '', 'system_prompt' => ''];
         }
 
         $row = DB::table('item_ai_config')
@@ -23,13 +23,15 @@ class ItemAiConfig
             ->first();
 
         if (!$row) {
-            return ['enabled' => 0, 'dialog_collapsed' => 1];
+            return ['enabled' => 0, 'dialog_collapsed' => 1, 'guest_enabled' => 0, 'welcome_message' => '', 'system_prompt' => ''];
         }
 
         return [
             'enabled'           => (int) ($row->enabled ?? 0),
             'dialog_collapsed'  => (int) ($row->dialog_collapsed ?? 1),
+            'guest_enabled'     => (int) ($row->guest_enabled ?? 0),
             'welcome_message'   => (string) ($row->welcome_message ?? ''),
+            'system_prompt'     => (string) ($row->system_prompt ?? ''),
         ];
     }
 
@@ -65,6 +67,12 @@ class ItemAiConfig
             }
             if (isset($config['welcome_message'])) {
                 $saveData['welcome_message'] = (string) $config['welcome_message'];
+            }
+            if (isset($config['system_prompt'])) {
+                $saveData['system_prompt'] = (string) $config['system_prompt'];
+            }
+            if (isset($config['guest_enabled'])) {
+                $saveData['guest_enabled'] = (int) $config['guest_enabled'];
             }
 
             // 如果没有任何字段需要更新（除了 updatetime），返回 false

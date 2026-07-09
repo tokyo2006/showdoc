@@ -42,11 +42,15 @@ class AdminSettingController extends BaseController
         $showWatermarkRaw = $this->getParam($request, 'show_watermark', null);
         $beian = $this->getParam($request, 'beian', '');
         $siteUrl = $this->getParam($request, 'site_url', '');
-        $openApiKey = $this->getParam($request, 'open_api_key', '');
-        $openApiHost = $this->getParam($request, 'open_api_host', '');
         $aiModelName = $this->getParam($request, 'ai_model_name', '');
         $aiServiceUrl = $this->getParam($request, 'ai_service_url', '');
         $aiServiceToken = $this->getParam($request, 'ai_service_token', '');
+        $openAiHost = $this->getParam($request, 'open_ai_host', '');
+        $openAiKey = $this->getParam($request, 'open_ai_key', '');
+        $aiSystemPrompt = $this->getParam($request, 'ai_system_prompt', '');
+        $aiMaxMessageLength = (int) $this->getParam($request, 'ai_max_message_length', 8000);
+        $aiToolRounds = (int) $this->getParam($request, 'ai_tool_rounds', 10);
+        $aiWelcomeMessage = $this->getParam($request, 'ai_welcome_message', '');
         $forceLoginRaw = $this->getParam($request, 'force_login', null);
         $enablePublicSquareRaw = $this->getParam($request, 'enable_public_square', null);
         $strongPasswordEnabledRaw = $this->getParam($request, 'strong_password_enabled', null);
@@ -85,11 +89,15 @@ class AdminSettingController extends BaseController
         Options::set("home_item", $homeItem);
         Options::set("beian", $beian);
         Options::set("site_url", $siteUrl);
-        Options::set("open_api_key", $openApiKey);
-        Options::set("open_api_host", $openApiHost);
         Options::set("ai_model_name", $aiModelName);
         Options::set("ai_service_url", $aiServiceUrl);
         Options::set("ai_service_token", $aiServiceToken);
+        Options::set("open_ai_host", $openAiHost);
+        Options::set("open_ai_key", $openAiKey);
+        Options::set("ai_system_prompt", $aiSystemPrompt);
+        Options::set("ai_max_message_length", $aiMaxMessageLength);
+        Options::set("ai_tool_rounds", $aiToolRounds);
+        Options::set("ai_welcome_message", $aiWelcomeMessage);
         Options::set("show_watermark", $showWatermark);
         Options::set("force_login", $forceLogin);
         Options::set("enable_public_square", $enablePublicSquare);
@@ -130,11 +138,30 @@ class AdminSettingController extends BaseController
         $homeItem = Options::get("home_item");
         $beian = Options::get("beian");
         $siteUrl = Options::get("site_url");
-        $openApiKey = Options::get("open_api_key");
-        $openApiHost = Options::get("open_api_host");
         $aiModelName = Options::get("ai_model_name");
         $aiServiceUrl = Options::get("ai_service_url");
         $aiServiceToken = Options::get("ai_service_token");
+        // AI 配置：优先新 key open_ai_*，为空时兼容旧 key open_api_* 并自动迁移
+        $openAiHost = Options::get("open_ai_host");
+        $openAiKey = Options::get("open_ai_key");
+        if (($openAiHost === false || $openAiHost === null || $openAiHost === '')) {
+            $oldHost = Options::get("open_api_host");
+            if ($oldHost !== false && $oldHost !== null && $oldHost !== '') {
+                $openAiHost = $oldHost;
+                Options::set("open_ai_host", $oldHost);
+            }
+        }
+        if (($openAiKey === false || $openAiKey === null || $openAiKey === '')) {
+            $oldKey = Options::get("open_api_key");
+            if ($oldKey !== false && $oldKey !== null && $oldKey !== '') {
+                $openAiKey = $oldKey;
+                Options::set("open_ai_key", $oldKey);
+            }
+        }
+        $aiSystemPrompt = Options::get("ai_system_prompt");
+        $aiMaxMessageLength = (int) Options::get("ai_max_message_length", 8000);
+        $aiToolRounds = (int) Options::get("ai_tool_rounds", 10);
+        $aiWelcomeMessage = Options::get("ai_welcome_message");
         $forceLogin = Options::get("force_login");
         $enablePublicSquare = Options::get("enable_public_square");
         $strongPasswordEnabled = Options::get("strong_password_enabled");
@@ -159,11 +186,15 @@ class AdminSettingController extends BaseController
             "beian" => $beian,
             "site_url" => $siteUrl,
             "oss_setting" => $ossSetting,
-            "open_api_key" => $openApiKey,
-            "open_api_host" => $openApiHost,
             "ai_model_name" => $aiModelName,
             "ai_service_url" => $aiServiceUrl,
             "ai_service_token" => $aiServiceToken,
+            "open_ai_host" => $openAiHost,
+            "open_ai_key" => $openAiKey,
+            "ai_system_prompt" => $aiSystemPrompt,
+            "ai_max_message_length" => $aiMaxMessageLength,
+            "ai_tool_rounds" => $aiToolRounds,
+            "ai_welcome_message" => $aiWelcomeMessage,
             "force_login" => $forceLogin,
             "enable_public_square" => $enablePublicSquare,
             "strong_password_enabled" => $strongPasswordEnabled,

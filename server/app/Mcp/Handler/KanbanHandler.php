@@ -879,7 +879,8 @@ class KanbanHandler extends McpHandler
     $found = $this->findPage($pageId);
     $itemId = $found['itemId'];
 
-    $this->requireWritePermission($itemId);
+    // 检查管理权限（仅项目管理员）
+    $this->requireManagePermission($itemId);
 
     $board = $this->requireBoard($itemId);
     $boardData = $board['boardData'];
@@ -964,7 +965,8 @@ class KanbanHandler extends McpHandler
       McpError::throw(McpError::INVALID_PARAMS, '列表标题不能为空');
     }
 
-    $this->requireWritePermission($itemId);
+    // 检查管理权限（仅项目管理员）
+    $this->requireManagePermission($itemId);
 
     $board = $this->requireBoard($itemId);
     $boardData = $board['boardData'];
@@ -1009,7 +1011,8 @@ class KanbanHandler extends McpHandler
       McpError::throw(McpError::INVALID_PARAMS, '列表ID不能为空');
     }
 
-    $this->requireWritePermission($itemId);
+    // 检查管理权限（仅项目管理员）
+    $this->requireManagePermission($itemId);
 
     $board = $this->requireBoard($itemId);
     $boardData = $board['boardData'];
@@ -1067,7 +1070,8 @@ class KanbanHandler extends McpHandler
       McpError::throw(McpError::INVALID_PARAMS, '列表ID不能为空');
     }
 
-    $this->requireWritePermission($itemId);
+    // 检查管理权限（仅项目管理员）
+    $this->requireManagePermission($itemId);
 
     $board = $this->requireBoard($itemId);
     $boardData = $board['boardData'];
@@ -1128,7 +1132,8 @@ class KanbanHandler extends McpHandler
       McpError::throw(McpError::INVALID_PARAMS, '列表ID不能为空');
     }
 
-    $this->requireWritePermission($itemId);
+    // 检查管理权限（仅项目管理员）
+    $this->requireManagePermission($itemId);
 
     $board = $this->requireBoard($itemId);
     $boardData = $board['boardData'];
@@ -1263,4 +1268,15 @@ class KanbanHandler extends McpHandler
         'operator_uid' => $uid,
         'operator_username' => $operatorNames[$uid] ?? '',
         'addtime' => (int) $log->addtime,
-                                                                                                                                                                                                  
+      ];
+    }
+
+    return [
+      'item_id' => $itemId,
+      'activities' => $result,
+      'total' => $total,
+      'page' => $page,
+      'page_size' => $pageSize,
+    ];
+  }
+}

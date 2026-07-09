@@ -373,7 +373,11 @@ class Convert
     public function mdToRunapi(string $markdownContent): ?string
     {
         $aiModelName = Options::get('ai_model_name', 'gpt-4o-mini');
-        $openApiKey  = Options::get('open_api_key', '');
+        // 统一读新 key open_ai_key，兼容旧 key open_api_key
+        $openApiKey  = Options::get('open_ai_key', '');
+        if ($openApiKey === '') {
+            $openApiKey = Options::get('open_api_key', '');
+        }
         if ($openApiKey === '') {
             return null;
         }
@@ -392,7 +396,13 @@ class Convert
             ],
         ], JSON_UNESCAPED_UNICODE);
 
-        $openApiHost = Options::get('open_api_host', 'https://api.openai.com');
+        $openApiHost = Options::get('open_ai_host', '');
+        if ($openApiHost === '') {
+            $openApiHost = Options::get('open_api_host', '');
+        }
+        if ($openApiHost === '') {
+            $openApiHost = 'https://api.openai.com';
+        }
         if (strpos($openApiHost, 'http') !== 0) {
             $openApiHost = 'https://' . $openApiHost;
         }

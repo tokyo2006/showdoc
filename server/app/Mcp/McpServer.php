@@ -72,6 +72,24 @@ class McpServer
   }
 
   /**
+   * 获取所有已注册工具的列表（供 AI Agent 构建工具调用）
+   *
+   * @return array
+   */
+  public function getToolsList(): array
+  {
+    $tools = [];
+    foreach ($this->tools as $name => $tool) {
+      $tools[] = [
+        'name'        => $tool['name'],
+        'description' => $tool['description'],
+        'inputSchema' => $tool['inputSchema'],
+      ];
+    }
+    return $tools;
+  }
+
+  /**
    * 注册默认 Tools
    *
    * @return void
@@ -365,6 +383,31 @@ class McpServer
           ],
         ],
         'required' => ['query'],
+      ],
+      'handler' => 'page',
+    ];
+
+    $this->tools['search_all_pages'] = [
+      'name' => 'search_all_pages',
+      'description' => '全局搜索页面：在当前用户有权限的所有项目中搜索页面。不需要指定项目ID，适合「我不知道在哪个项目里」的场景。默认只搜索标题（速度快），可选 content/all 模式搜索正文内容（较慢，因为需要解密后逐页匹配）。看板项目(item_type=6)的任务页面也会被搜索',
+      'inputSchema' => [
+        'type' => 'object',
+        'properties' => [
+          'keywords' => [
+            'type' => 'string',
+            'description' => '搜索关键字（支持空格分隔多关键字 OR 搜索）',
+          ],
+          'mode' => [
+            'type' => 'string',
+            'description' => '搜索模式：title（默认，只搜索标题，速度快）、content（只搜索正文内容，速度慢）、all（搜索标题和正文，速度慢）',
+            'enum' => ['title', 'content', 'all'],
+          ],
+          'limit' => [
+            'type' => 'integer',
+            'description' => '最大返回结果数量（可选，默认20，最大50）',
+          ],
+        ],
+        'required' => ['keywords'],
       ],
       'handler' => 'page',
     ];
@@ -1639,10 +1682,11 @@ class McpServer
     } catch (McpException $e) {
       return $e->toResponse($this->requestId);
     } catch (\Throwable $e) {
+      error_log('MCP Server 内部错误: ' . $e->getMessage() . "\n" . $e->getTraceAsString());
       return McpError::createResponse(
         McpError::INTERNAL_ERROR,
-        '服务器内部错误: ' . $e->getMessage(),
-        ['trace' => $e->getTraceAsString()],
+        '服务器内部错误，请联系管理员',
+        null,
         $this->requestId
       );
     }

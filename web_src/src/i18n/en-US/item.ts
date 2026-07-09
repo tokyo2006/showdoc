@@ -25,6 +25,7 @@ export default {
   base_info: 'Base Info',
   update_base_info: 'Update Base Info',
   member_manage: 'Members & Teams',
+  ai_assistant_setting: 'AI Assistant Settings',
   advance_setting: 'Advanced Setting',
   open_api: 'Open API',
   open_api_tips1:

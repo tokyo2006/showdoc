@@ -5,7 +5,6 @@ namespace App\Api\Controller;
 use App\Common\BaseController;
 use App\Model\Item;
 use App\Model\ItemAiConfig;
-use App\Model\AiContentLog;
 use App\Model\Options;
 use App\Common\Helper\AiHelper;
 use Psr\Http\Message\ServerRequestInterface as Request;

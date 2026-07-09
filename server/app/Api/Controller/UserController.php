@@ -114,7 +114,7 @@ class UserController extends BaseController
         $uid = (int) ($user['uid'] ?? 0);
 
         // 读取完整用户信息，保持与旧版 Api/User/info 字段兼容
-        // 旧版字段：uid,username,email,email_verify,mobile,name,avatar,avatar_small,groupid,reg_time,payment_verify
+        // 旧版字段：uid,username,email,email_verify,mobile,name,avatar,avatar_small,groupid,reg_time
         $userFullObj = \App\Model\User::findById($uid);
         $userFull = $userFullObj ? (array) $userFullObj : [];
 
@@ -133,7 +133,6 @@ class UserController extends BaseController
             'avatar_small'    => $userFull['avatar_small'] ?? '',
             'groupid'         => $userFull['groupid'] ?? '',
             'reg_time'        => $userFull['reg_time'] ?? '',
-            'payment_verify'  => $userFull['payment_verify'] ?? 0,
             'is_wechat'       => $isWechat,
         ];
 
