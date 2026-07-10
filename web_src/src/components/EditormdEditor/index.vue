@@ -589,7 +589,8 @@ const loadEditormdDeps = async (editorPath: string): Promise<void> => {
     ])
 
     // 加载 editormd.js
-    const editormdJsUrl = `${editorPath}editormd.js?v=46`
+    // ⚠️ 修改 editormd.js 文件后必须更新版本号，防止浏览器/CDN 缓存
+    const editormdJsUrl = `${editorPath}editormd.js?v=47`
     await loadScript(editormdJsUrl)
 
     // 验证 editormd 对象是否已注册到全局

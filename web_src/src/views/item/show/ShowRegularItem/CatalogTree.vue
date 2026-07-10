@@ -654,7 +654,7 @@ const handleCloneCatalog = async (node: any) => {
 
 const handleDeleteCatalog = async (node: any) => {
   const result = await ConfirmModal({
-    msg: t('catalog.confirm_cat_delete'),
+    msg: t('catalog.confirm_cat_delete', { name: node.title }),
     title: t('common.tips'),
   })
 

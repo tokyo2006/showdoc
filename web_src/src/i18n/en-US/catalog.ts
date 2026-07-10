@@ -13,7 +13,7 @@ export default {
   select_parent_catalog: 'Select Parent Catalog',
   none: 'None',
   cat_tips: 'Drag to sort',
-  confirm_cat_delete: 'Confirm to delete catalog? This operation will delete all pages under this catalog. Please operate with caution.',
+  confirm_cat_delete: 'Are you sure to delete catalog "{name}"? This operation will delete all pages under this catalog. Please operate with caution.',
   expand_all: 'Expand All',
   collapse_all: 'Collapse All',
   add_sub_page: 'Add Page',

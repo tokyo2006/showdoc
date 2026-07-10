@@ -2018,7 +2018,7 @@
         if (settings.watch) {
           _this.previewContainer.css(
             'padding',
-            settings.autoHeight ? '20px 20px 50px 40px' : '20px'
+            settings.autoHeight ? '30px 20px 50px 40px' : '30px'
           )
         }
 
@@ -2163,7 +2163,7 @@
 
         this.previewContainer.css(
           'padding',
-          settings.autoHeight ? '20px 20px 50px 40px' : '20px'
+          settings.autoHeight ? '30px 20px 50px 40px' : '30px'
         )
 
         if (settings.toolbar && !settings.readOnly) {

@@ -13,7 +13,7 @@ export default {
   select_parent_catalog: '选择上级目录',
   none: '无',
   cat_tips: '可拖动以排序',
-  confirm_cat_delete: '确认删除目录吗？此操作会把该目录下的所有页面一并删除，请谨慎操作。',
+  confirm_cat_delete: '确定要删除目录「{name}」吗？此操作会把该目录下的所有页面一并删除，请谨慎操作。',
   expand_all: '展开全部',
   collapse_all: '折叠全部',
   add_sub_page: '添加页面',

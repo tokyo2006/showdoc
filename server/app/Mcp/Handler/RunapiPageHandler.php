@@ -148,6 +148,7 @@ class RunapiPageHandler extends McpHandler
     $this->validateRunapiContent($pageContent);
 
     $catName = trim($params['cat_name'] ?? '');
+    $catIdParam = (int) ($params['cat_id'] ?? 0);
     $sNumber = (int) ($params['s_number'] ?? 99);
 
     if (!$skipPermissionCheck) {
@@ -189,10 +190,7 @@ class RunapiPageHandler extends McpHandler
       );
     }
 
-    $catId = 0;
-    if ($catName !== '') {
-      $catId = $this->getOrCreateCatalog($itemId, $catName);
-    }
+    $catId = $this->resolveCatId($itemId, $catIdParam, $catName);
 
     $existingPage = DB::table($tableName)
       ->where('item_id', $itemId)
@@ -269,6 +267,7 @@ class RunapiPageHandler extends McpHandler
     $pageTitle = trim($params['page_title'] ?? '');
     $pageContent = $params['page_content'] ?? null;
     $catName = trim((string) ($params['cat_name'] ?? ''));
+    $catIdParam = (int) ($params['cat_id'] ?? 0);
     $targetCatId = (int) ($page->cat_id ?? 0);
 
     if ($pageContent !== null) {
@@ -289,8 +288,8 @@ class RunapiPageHandler extends McpHandler
       $updateData['page_content'] = $contentString;
     }
 
-    if ($catName !== '') {
-      $targetCatId = $this->getOrCreateCatalog($itemId, $catName);
+    if ($catName !== '' || $catIdParam > 0) {
+      $targetCatId = $this->resolveCatId($itemId, $catIdParam, $catName);
       $updateData['cat_id'] = $targetCatId;
     }
 
@@ -309,7 +308,7 @@ class RunapiPageHandler extends McpHandler
       $updateData['page_title'] = $pageTitle;
     }
 
-    if ($pageTitle === '' && $catName !== '') {
+    if ($pageTitle === '' && ($catName !== '' || $catIdParam > 0)) {
       // 仅改目录时，也要保证目标目录下标题不冲突
       $existingInTargetCat = DB::table($shard['tableName'])
         ->where('item_id', $itemId)
@@ -430,14 +429,12 @@ class RunapiPageHandler extends McpHandler
     $tableName = Page::tableForItem($itemId);
 
     $catName = trim($params['cat_name'] ?? '');
-    $catId = 0;
-    if ($catName !== '') {
-      $catId = $this->getOrCreateCatalog($itemId, $catName);
-    }
+    $catIdParam = (int) ($params['cat_id'] ?? 0);
+    $catId = $this->resolveCatId($itemId, $catIdParam, $catName);
 
     // 检查页面是否已存在
     // 当传入 cat_name 时，按 item_id + page_title 查找（忽略 cat_id），支持跨目录移动
-    // 当未传 cat_name 时，按 item_id + cat_id + page_title 判重，允许不同目录下存在同名页面
+    // 当传入 cat_id 或未传任何目录参数时，按 item_id + cat_id + page_title 判重
     $query = DB::table($tableName)
       ->where('item_id', $itemId)
       ->where('page_title', $pageTitle)
@@ -454,8 +451,10 @@ class RunapiPageHandler extends McpHandler
         'page_id' => $existingPage->page_id,
         'page_content' => $pageContent,
       ];
-      // 传入 cat_name 以支持移动目录
-      if ($catName !== '') {
+      // 传入 cat_id 或 cat_name 以支持移动目录
+      if ($catIdParam > 0) {
+        $updateParams['cat_id'] = $catIdParam;
+      } elseif ($catName !== '') {
         $updateParams['cat_name'] = $catName;
       }
       return $this->updateRunapiPage($updateParams, true);
@@ -505,45 +504,6 @@ class RunapiPageHandler extends McpHandler
       }
     }
     return $maxDepth;
-  }
-
-  private function getOrCreateCatalog(int $itemId, string $catName): int
-  {
-    $catNames = array_map('trim', explode('/', $catName));
-    $parentCatId = 0;
-    $catId = 0;
-
-    for ($i = 0; $i < count($catNames); $i++) {
-      $name = $catNames[$i];
-      if ($name === '') {
-        continue;
-      }
-
-      $level = $i + 2;
-
-      $catalog = DB::table('catalog')
-        ->where('item_id', $itemId)
-        ->where('cat_name', $name)
-        ->where('parent_cat_id', $parentCatId)
-        ->first();
-
-      if ($catalog) {
-        $catId = (int) $catalog->cat_id;
-      } else {
-        $catId = DB::table('catalog')->insertGetId([
-          'item_id' => $itemId,
-          'cat_name' => $name,
-          'parent_cat_id' => $parentCatId,
-          's_number' => 99,
-          'addtime' => time(),
-          'level' => $level,
-        ]);
-      }
-
-      $parentCatId = $catId;
-    }
-
-    return $catId;
   }
 
   private function getUsername(): string

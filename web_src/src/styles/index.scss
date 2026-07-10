@@ -87,6 +87,12 @@ nav {
   color: var(--color-primary);
 }
 
+// 代码块内的 span 不受全局文本颜色影响，由 highlight.js 主题控制
+pre span,
+code span {
+  color: inherit;
+}
+
 // 统一表单元素样式（不设置 border 和 background，让组件自己控制）
 // 排除有特定类的输入框（如 .common-input），让组件自己控制样式
 input[type="text"]:not(.common-input),

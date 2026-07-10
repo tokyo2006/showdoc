@@ -494,6 +494,89 @@ abstract class McpHandler
   }
 
   /**
+   * 解析目录ID（cat_id 优先于 cat_name）
+   *
+   * 当同时提供 cat_id 和 cat_name 时，cat_id 优先（精确无歧义），
+   * cat_name 作为兜底（不存在则自动创建）。
+   *
+   * @param int $itemId 项目ID
+   * @param int $catId 目录ID（可选，优先使用）
+   * @param string $catName 目录名称（可选，cat_id 为空时作为兜底）
+   * @return int 解析后的目录ID（0 表示根目录）
+   * @throws McpException cat_id 不属于该项目时抛出异常
+   */
+  protected function resolveCatId(int $itemId, int $catId, string $catName): int
+  {
+    if ($catId > 0) {
+      // 验证 cat_id 属于该项目（防止跨项目指定目录）
+      $catalog = DB::table('catalog')
+        ->where('cat_id', $catId)
+        ->where('item_id', $itemId)
+        ->first();
+      if (!$catalog) {
+        McpError::throw(McpError::INVALID_PARAMS, "目录ID {$catId} 不属于该项目或不存在");
+      }
+      return $catId;
+    }
+
+    if ($catName !== '') {
+      return $this->getOrCreateCatalog($itemId, $catName);
+    }
+
+    return 0;
+  }
+
+  /**
+   * 获取或创建目录
+   *
+   * @param int $itemId 项目ID
+   * @param string $catName 目录名称（支持多级，用/分隔）
+   * @return int 目录ID
+   */
+  protected function getOrCreateCatalog(int $itemId, string $catName): int
+  {
+    $catNames = array_map('trim', explode('/', $catName));
+    $parentCatId = 0;
+    $catId = 0;
+    $depth = 0;
+
+    for ($i = 0; $i < count($catNames); $i++) {
+      $name = $catNames[$i];
+      if ($name === '') {
+        continue;
+      }
+
+      $depth++;
+      $level = $depth + 1;
+
+      // 查找目录（仅按 item_id + cat_name + parent_cat_id 匹配，不限制 level）
+      $catalog = DB::table('catalog')
+        ->where('item_id', $itemId)
+        ->where('cat_name', $name)
+        ->where('parent_cat_id', $parentCatId)
+        ->first();
+
+      if ($catalog) {
+        $catId = (int) $catalog->cat_id;
+      } else {
+        // 创建目录
+        $catId = DB::table('catalog')->insertGetId([
+          'item_id' => $itemId,
+          'cat_name' => $name,
+          'parent_cat_id' => $parentCatId,
+          's_number' => 99,
+          'addtime' => time(),
+          'level' => $level,
+        ]);
+      }
+
+      $parentCatId = $catId;
+    }
+
+    return $catId;
+  }
+
+  /**
    * 获取 Handler 支持的操作列表
    *
    * @return array

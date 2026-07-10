@@ -1062,6 +1062,7 @@ MARKDOWN;
 
     $pageContent = $params['page_content'] ?? '';
     $catName = trim($params['cat_name'] ?? '');
+    $catIdParam = (int) ($params['cat_id'] ?? 0);
     $sNumber = (int) ($params['s_number'] ?? 99);
 
     // 检查写入权限（batch_upsert_pages 已在外层检查过时跳过）
@@ -1109,11 +1110,8 @@ MARKDOWN;
       );
     }
 
-    // 处理目录（提前计算 cat_id，用于后续唯一性检查）
-    $catId = 0;
-    if ($catName !== '') {
-      $catId = $this->getOrCreateCatalog($itemId, $catName);
-    }
+    // 处理目录（cat_id 优先于 cat_name，提前计算 cat_id 用于后续唯一性检查）
+    $catId = $this->resolveCatId($itemId, $catIdParam, $catName);
 
     // 检查页面是否已存在（按 item_id + cat_id + page_title 判重，允许不同目录下存在同名页面）
     $existingPage = DB::table($tableName)
@@ -1462,6 +1460,7 @@ MARKDOWN;
     $pageTitle = trim($params['page_title'] ?? '');
     $pageContent = $params['page_content'] ?? null;
     $catName = trim((string) ($params['cat_name'] ?? ''));
+    $catIdParam = (int) ($params['cat_id'] ?? 0);
     $targetCatId = (int) ($page->cat_id ?? 0);
 
     if ($pageContent !== null) {
@@ -1475,8 +1474,8 @@ MARKDOWN;
       $updateData['page_content'] = $pageContent;
     }
 
-    if ($catName !== '') {
-      $targetCatId = $this->getOrCreateCatalog($itemId, $catName);
+    if ($catName !== '' || $catIdParam > 0) {
+      $targetCatId = $this->resolveCatId($itemId, $catIdParam, $catName);
       $updateData['cat_id'] = $targetCatId;
     }
 
@@ -1495,8 +1494,8 @@ MARKDOWN;
       $updateData['page_title'] = $pageTitle;
     }
 
-    if ($pageTitle === '' && $catName !== '') {
-      // 仅改目录时，也要保证目标目录下标题不冲突
+    // 仅改目录时，也要保证目标目录下不存在同标题的其他页面
+    if ($pageTitle === '' && ($catName !== '' || $catIdParam > 0)) {
       $existingInTargetCat = DB::table('page')
         ->where('item_id', $itemId)
         ->where('cat_id', $targetCatId)
@@ -1617,6 +1616,7 @@ MARKDOWN;
 
     $pageContent = $params['page_content'] ?? '';
     $catName = trim($params['cat_name'] ?? '');
+    $catIdParam = (int) ($params['cat_id'] ?? 0);
     $sNumber = (int) ($params['s_number'] ?? 99);
 
     // 检查写入权限（batch_upsert_pages 已在外层检查过时跳过）
@@ -1627,15 +1627,12 @@ MARKDOWN;
     // 获取分表名称
     $tableName = Page::tableForItem($itemId);
 
-    // 处理目录（提前计算 cat_id，用于后续唯一性检查）
-    $catId = 0;
-    if ($catName !== '') {
-      $catId = $this->getOrCreateCatalog($itemId, $catName);
-    }
+    // 处理目录（cat_id 优先于 cat_name，提前计算 cat_id 用于后续唯一性检查）
+    $catId = $this->resolveCatId($itemId, $catIdParam, $catName);
 
     // 检查页面是否已存在
     // 当传入 cat_name 时，按 item_id + page_title 查找（忽略 cat_id），支持跨目录移动
-    // 当未传 cat_name 时，按 item_id + cat_id + page_title 判重，允许不同目录下存在同名页面
+    // 当传入 cat_id 或未传任何目录参数时，按 item_id + cat_id + page_title 判重
     $query = DB::table($tableName)
       ->where('item_id', $itemId)
       ->where('page_title', $pageTitle)
@@ -1653,8 +1650,10 @@ MARKDOWN;
         'page_id' => $existingPage->page_id,
         'page_content' => $pageContent,
       ];
-      // 传入 cat_name 以支持移动目录
-      if ($catName !== '') {
+      // 传入 cat_id 或 cat_name 以支持移动目录
+      if ($catIdParam > 0) {
+        $updateParams['cat_id'] = $catIdParam;
+      } elseif ($catName !== '') {
         $updateParams['cat_name'] = $catName;
       }
       return $this->updatePage($updateParams, true);
@@ -1698,6 +1697,7 @@ MARKDOWN;
           'item_id' => $itemId,
           'page_title' => $pageData['page_title'] ?? '',
           'page_content' => $pageData['page_content'] ?? '',
+          'cat_id' => $pageData['cat_id'] ?? 0,
           'cat_name' => $pageData['cat_name'] ?? '',
           's_number' => $pageData['s_number'] ?? 99,
         ]);
@@ -1772,56 +1772,6 @@ MARKDOWN;
     } catch (\Throwable $e) {
       McpError::throw(McpError::OPERATION_FAILED, '页面删除失败: ' . $e->getMessage());
     }
-  }
-
-  /**
-   * 获取或创建目录
-   *
-   * @param int $itemId 项目ID
-   * @param string $catName 目录名称（支持多级，用/分隔）
-   * @return int 目录ID
-   */
-  private function getOrCreateCatalog(int $itemId, string $catName): int
-  {
-    $catNames = array_map('trim', explode('/', $catName));
-    $parentCatId = 0;
-    $catId = 0;
-    $depth = 0;
-
-    for ($i = 0; $i < count($catNames); $i++) {
-      $name = $catNames[$i];
-      if ($name === '') {
-        continue;
-      }
-
-      $depth++;
-      $level = $depth + 1;
-
-      // 查找目录（仅按 item_id + cat_name + parent_cat_id 匹配，不限制 level）
-      $catalog = DB::table('catalog')
-        ->where('item_id', $itemId)
-        ->where('cat_name', $name)
-        ->where('parent_cat_id', $parentCatId)
-        ->first();
-
-      if ($catalog) {
-        $catId = (int) $catalog->cat_id;
-      } else {
-        // 创建目录
-        $catId = DB::table('catalog')->insertGetId([
-          'item_id' => $itemId,
-          'cat_name' => $name,
-          'parent_cat_id' => $parentCatId,
-          's_number' => 99,
-          'addtime' => time(),
-          'level' => $level,
-        ]);
-      }
-
-      $parentCatId = $catId;
-    }
-
-    return $catId;
   }
 
   /**

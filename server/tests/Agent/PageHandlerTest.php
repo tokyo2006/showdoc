@@ -24,6 +24,7 @@ use Illuminate\Database\Capsule\Manager as DB;
  *   TC-176  get_page_template
  *   TC-177  get_page_history / get_page_version
  *   TC-178  diff_page_versions / restore_page_version
+ *   TC-179  cat_id 参数（精确指定嵌套目录，cat_id 优先于 cat_name）
  *
  * 与主版的差异（已裁剪/调整）：
  *   - page 改为单表存储：insertPage 只写 DB::table('page')（含 page_content 等全部列），
@@ -140,6 +141,20 @@ class PageHandlerTest extends TestCase
             'author_uid'      => $authorUid,
             'author_username' => $authorUsername,
         ]);
+    }
+
+    private function insertCatalog(int $catId, int $itemId, string $catName, int $parentCatId = 0, int $level = 2): int
+    {
+        DB::table('catalog')->insert([
+            'cat_id'       => $catId,
+            'item_id'      => $itemId,
+            'cat_name'     => $catName,
+            'parent_cat_id'=> $parentCatId,
+            's_number'     => 99,
+            'addtime'      => time(),
+            'level'        => $level,
+        ]);
+        return $catId;
     }
 
     // ------------------------------------------------------------------
@@ -1071,5 +1086,254 @@ class PageHandlerTest extends TestCase
         $this->expectException(McpException::class);
         $this->expectExceptionMessage('版本ID不能为空');
         $this->handler->execute('restore_page_version', ['page_id' => $this->pageId]);
+    }
+
+    // ==================================================================
+    //  TC-179  cat_id 参数（精确指定嵌套目录）
+    // ==================================================================
+
+    /** TC-179.1 create_page 通过 cat_id 精确指定嵌套目录 */
+    public function testCreatePageWithCatId(): void
+    {
+        $this->setupWriteToken();
+        // 创建一个嵌套目录（parent_cat_id != 0），模拟含 / 字符的目录名场景
+        $this->insertCatalog(1323, $this->itemId, '中间件问题', 0, 2);
+        $this->insertCatalog(1311, $this->itemId, '故障', 1323, 3);
+
+        $result = $this->handler->execute('create_page', [
+            'item_id'      => $this->itemId,
+            'page_title'   => '通过cat_id创建的页面',
+            'page_content' => '内容',
+            'cat_id'       => 1311,
+        ]);
+
+        $this->assertGreaterThan(0, $result['page_id']);
+        $this->assertEquals(1311, $result['cat_id']);
+    }
+
+    /** TC-179.2 create_page cat_id 优先于 cat_name */
+    public function testCreatePageCatIdOverridesCatName(): void
+    {
+        $this->setupWriteToken();
+        $this->insertCatalog(5000, $this->itemId, '目标目录', 0, 2);
+
+        $result = $this->handler->execute('create_page', [
+            'item_id'      => $this->itemId,
+            'page_title'   => '优先级测试',
+            'page_content' => '内容',
+            'cat_id'       => 5000,
+            'cat_name'     => '另一个目录',  // 应被忽略
+        ]);
+
+        $this->assertEquals(5000, $result['cat_id']);
+    }
+
+    /** TC-179.3 create_page cat_id 不属于该项目时报错 */
+    public function testCreatePageCatIdNotInItem(): void
+    {
+        $this->setupWriteToken();
+        $this->insertItem(2, 'OtherProj', $this->uid);
+        $this->insertCatalog(6000, 2, '其他项目的目录', 0, 2);
+
+        $this->expectException(McpException::class);
+        $this->expectExceptionMessage('不属于该项目');
+        $this->handler->execute('create_page', [
+            'item_id'      => $this->itemId,
+            'page_title'   => '跨项目测试',
+            'page_content' => '内容',
+            'cat_id'       => 6000,
+        ]);
+    }
+
+    /** TC-179.4 create_page cat_id 不存在时报错 */
+    public function testCreatePageCatIdNotFound(): void
+    {
+        $this->setupWriteToken();
+
+        $this->expectException(McpException::class);
+        $this->expectExceptionMessage('不属于该项目');
+        $this->handler->execute('create_page', [
+            'item_id'      => $this->itemId,
+            'page_title'   => '不存在的目录',
+            'page_content' => '内容',
+            'cat_id'       => 99999,
+        ]);
+    }
+
+    /** TC-179.5 create_page 含 / 字符的目录名（cat_name 路径分隔符问题） */
+    public function testCreatePageCatNameWithSlashCreatesTwoLevels(): void
+    {
+        $this->setupWriteToken();
+        $result = $this->handler->execute('create_page', [
+            'item_id'      => $this->itemId,
+            'page_title'   => '路径分隔测试',
+            'page_content' => '内容',
+            'cat_name'     => '父目录/子目录',
+        ]);
+
+        $this->assertGreaterThan(0, $result['cat_id']);
+        // 验证创建了两个目录（父目录 + 子目录）
+        $catCount = DB::table('catalog')->where('item_id', $this->itemId)->count();
+        $this->assertEquals(2, $catCount);
+    }
+
+    /** TC-179.6 update_page 通过 cat_id 移动页面到目标目录 */
+    public function testUpdatePageMoveByCatId(): void
+    {
+        $this->setupWriteToken();
+        $this->insertPage($this->pageId, $this->itemId, '待移动页面', 'content', 0);
+        $this->insertCatalog(7000, $this->itemId, '目标目录', 0, 2);
+
+        $result = $this->handler->execute('update_page', [
+            'page_id'    => $this->pageId,
+            'cat_id'     => 7000,
+        ]);
+
+        $this->assertStringContainsString('成功', $result['message']);
+
+        // 验证页面 cat_id 已变更
+        $page = $this->handler->execute('get_page', ['page_id' => $this->pageId]);
+        $this->assertEquals(7000, $page['cat_id']);
+    }
+
+    /** TC-179.7 update_page cat_id 优先于 cat_name */
+    public function testUpdatePageCatIdOverridesCatName(): void
+    {
+        $this->setupWriteToken();
+        $this->insertPage($this->pageId, $this->itemId, '优先级测试', 'content', 0);
+        $this->insertCatalog(7100, $this->itemId, 'cat_id目录', 0, 2);
+
+        $result = $this->handler->execute('update_page', [
+            'page_id'  => $this->pageId,
+            'cat_id'   => 7100,
+            'cat_name' => 'cat_name创建的目录',
+        ]);
+
+        $this->assertStringContainsString('成功', $result['message']);
+
+        $page = $this->handler->execute('get_page', ['page_id' => $this->pageId]);
+        $this->assertEquals(7100, $page['cat_id']);
+    }
+
+    /** TC-179.8 update_page cat_id 不属于该项目时报错 */
+    public function testUpdatePageCatIdNotInItem(): void
+    {
+        $this->setupWriteToken();
+        $this->insertPage($this->pageId, $this->itemId, '测试', 'content');
+        $this->insertItem(2, 'OtherProj', $this->uid);
+        $this->insertCatalog(7200, 2, '其他项目目录', 0, 2);
+
+        $this->expectException(McpException::class);
+        $this->expectExceptionMessage('不属于该项目');
+        $this->handler->execute('update_page', [
+            'page_id' => $this->pageId,
+            'cat_id'  => 7200,
+        ]);
+    }
+
+    /** TC-179.8b update_page 移动到目标目录时，目标目录已有同名页面则报错 */
+    public function testUpdatePageMoveToCatalogWithDuplicateTitle(): void
+    {
+        $this->setupWriteToken();
+        $this->insertCatalog(7250, $this->itemId, '源目录', 0, 2);
+        $this->insertCatalog(7251, $this->itemId, '目标目录', 0, 2);
+        // 页面A在源目录
+        $this->insertPage(300, $this->itemId, '同名页面', 'content A', 7250);
+        // 页面B在目标目录（同名）
+        $this->insertPage(301, $this->itemId, '同名页面', 'content B', 7251);
+
+        $this->expectException(McpException::class);
+        $this->expectExceptionMessage('目标目录下已存在同名页面');
+        $this->handler->execute('update_page', [
+            'page_id' => 300,
+            'cat_id'  => 7251,
+        ]);
+    }
+
+    /** TC-179.9 upsert_page 通过 cat_id 创建页面到指定目录 */
+    public function testUpsertPageCreateWithCatId(): void
+    {
+        $this->setupWriteToken();
+        $this->insertCatalog(7300, $this->itemId, 'upsert目录', 0, 2);
+
+        $result = $this->handler->execute('upsert_page', [
+            'item_id'      => $this->itemId,
+            'page_title'   => 'upsert新页面',
+            'page_content' => '内容',
+            'cat_id'       => 7300,
+        ]);
+
+        $this->assertGreaterThan(0, $result['page_id']);
+        $this->assertStringContainsString('成功', $result['message']);
+    }
+
+    /** TC-179.10 upsert_page 通过 cat_id 更新已有页面 */
+    public function testUpsertPageUpdateWithCatId(): void
+    {
+        $this->setupWriteToken();
+        $this->insertCatalog(7400, $this->itemId, '原目录', 0, 2);
+        $this->insertPage($this->pageId, $this->itemId, '已有页面', 'old content', 7400);
+
+        $this->insertCatalog(7401, $this->itemId, '新目录', 0, 2);
+        $result = $this->handler->execute('upsert_page', [
+            'item_id'      => $this->itemId,
+            'page_title'   => '已有页面',
+            'page_content' => 'new content',
+            'cat_id'       => 7401,
+        ]);
+
+        $this->assertStringContainsString('成功', $result['message']);
+    }
+
+    /** TC-179.11 batch_upsert_pages 支持 cat_id */
+    public function testBatchUpsertPagesWithCatId(): void
+    {
+        $this->setupWriteToken();
+        $this->insertCatalog(7500, $this->itemId, '批量目录A', 0, 2);
+        $this->insertCatalog(7501, $this->itemId, '批量目录B', 0, 2);
+
+        $result = $this->handler->execute('batch_upsert_pages', [
+            'item_id' => $this->itemId,
+            'pages'   => [
+                [
+                    'page_title'   => '批量页面A',
+                    'page_content' => '内容A',
+                    'cat_id'       => 7500,
+                ],
+                [
+                    'page_title'   => '批量页面B',
+                    'page_content' => '内容B',
+                    'cat_id'       => 7501,
+                ],
+            ],
+        ]);
+
+        $this->assertEquals(2, $result['success_count']);
+        $this->assertEquals(0, $result['failed_count']);
+    }
+
+    /** TC-179.12 batch_upsert_pages cat_id 与 cat_name 混用 */
+    public function testBatchUpsertPagesMixCatIdAndCatName(): void
+    {
+        $this->setupWriteToken();
+        $this->insertCatalog(7600, $this->itemId, '精确目录', 0, 2);
+
+        $result = $this->handler->execute('batch_upsert_pages', [
+            'item_id' => $this->itemId,
+            'pages'   => [
+                [
+                    'page_title'   => '精确页面',
+                    'page_content' => '内容',
+                    'cat_id'       => 7600,
+                ],
+                [
+                    'page_title'   => '模糊页面',
+                    'page_content' => '内容',
+                    'cat_name'     => '自动创建的目录',
+                ],
+            ],
+        ]);
+
+        $this->assertEquals(2, $result['success_count']);
     }
 }

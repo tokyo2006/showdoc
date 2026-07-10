@@ -448,7 +448,11 @@ class McpServer
           ],
           'cat_name' => [
             'type' => 'string',
-            'description' => '目录名称（可选，不存在则自动创建）',
+            'description' => '目录名称（可选，不存在则自动创建）。注意：目录名含/时会被当作多级路径分隔符',
+          ],
+          'cat_id' => [
+            'type' => 'integer',
+            'description' => '目录ID（可选，优先于 cat_name，可精确指定含/字符的嵌套目录）',
           ],
           's_number' => [
             'type' => 'integer',
@@ -502,6 +506,10 @@ class McpServer
             'type' => 'string',
             'description' => '目录名称（可选，传入时可将页面移动到指定目录，不存在则自动创建）',
           ],
+          'cat_id' => [
+            'type' => 'integer',
+            'description' => '目标目录ID（可选，优先于 cat_name，可将页面移动到指定目录）',
+          ],
           'expected_hash' => [
             'type' => 'string',
             'description' => '期望的当前内容哈希（乐观锁，可选）',
@@ -534,6 +542,10 @@ class McpServer
             'type' => 'string',
             'description' => '目录名称（可选）',
           ],
+          'cat_id' => [
+            'type' => 'integer',
+            'description' => '目录ID（可选，优先于 cat_name，可精确指定含/字符的嵌套目录）',
+          ],
           's_number' => [
             'type' => 'integer',
             'description' => '排序号（可选）',
@@ -562,6 +574,7 @@ class McpServer
                 'page_title' => ['type' => 'string'],
                 'page_content' => ['type' => 'string'],
                 'cat_name' => ['type' => 'string'],
+                'cat_id' => ['type' => 'integer', 'description' => '目录ID（可选，优先于 cat_name）'],
                 's_number' => ['type' => 'integer'],
               ],
               'required' => ['page_title', 'page_content'],
@@ -1308,6 +1321,10 @@ class McpServer
             'type' => 'string',
             'description' => '目录名称（可选，不存在则自动创建，支持/分隔多级目录）',
           ],
+          'cat_id' => [
+            'type' => 'integer',
+            'description' => '目录ID（可选，优先于 cat_name，可精确指定含/字符的嵌套目录）',
+          ],
           's_number' => [
             'type' => 'integer',
             'description' => '排序号（可选，默认99）',
@@ -1335,6 +1352,14 @@ class McpServer
           'page_content' => [
             'type' => 'object',
             'description' => '完整的RunApi JSON对象（必须是完整对象，不支持部分更新）',
+          ],
+          'cat_id' => [
+            'type' => 'integer',
+            'description' => '目标目录ID（可选，可将页面移动到指定目录，优先于 cat_name）',
+          ],
+          'cat_name' => [
+            'type' => 'string',
+            'description' => '目标目录名称（可选，可将页面移动到指定目录，不存在则自动创建）',
           ],
           'expected_hash' => [
             'type' => 'string',
@@ -1367,6 +1392,10 @@ class McpServer
           'cat_name' => [
             'type' => 'string',
             'description' => '目录名称（可选，不存在则自动创建）',
+          ],
+          'cat_id' => [
+            'type' => 'integer',
+            'description' => '目录ID（可选，优先于 cat_name，可精确指定含/字符的嵌套目录）',
           ],
           's_number' => [
             'type' => 'integer',
