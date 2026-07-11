@@ -335,8 +335,7 @@ const checkConfig = async () => {
     if (config.enabled) {
       showWidget.value = true
     } else {
-      // 游客未启用时隐藏按钮；登录用户始终显示（只要系统级 AI 已配置）
-      showWidget.value = !isGuest.value
+      showWidget.value = false
     }
     canEdit.value = !!config.can_edit
 
