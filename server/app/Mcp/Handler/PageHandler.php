@@ -38,6 +38,7 @@ class PageHandler extends McpHandler
       'create_page',
       'create_page_by_comment',
       'update_page',
+      'update_page_diff',
       'upsert_page',
       'batch_upsert_pages',
       'delete_page',
@@ -90,6 +91,9 @@ class PageHandler extends McpHandler
 
       case 'update_page':
         return $this->updatePage($params);
+
+      case 'update_page_diff':
+        return $this->updatePageDiff($params);
 
       case 'upsert_page':
         return $this->upsertPage($params);
@@ -2305,5 +2309,261 @@ MARKDOWN;
     return [
       'message' => '单页分享链接已删除',
     ];
+  }
+
+  /**
+   * 使用差异替换方式更新页面内容
+   *
+   * @param array $params 参数
+   * @return array
+   * @throws McpException
+   */
+  private function updatePageDiff(array $params): array
+  {
+    $pageId = (int) ($params['page_id'] ?? 0);
+    if ($pageId <= 0) {
+      McpError::throw(McpError::INVALID_PARAMS, '页面ID不能为空');
+    }
+
+    $diffs = $params['diffs'] ?? [];
+    if (!is_array($diffs) || empty($diffs)) {
+      McpError::throw(McpError::INVALID_PARAMS, 'diffs 必须是非空数组');
+    }
+    if (count($diffs) > 20) {
+      McpError::throw(McpError::INVALID_PARAMS, 'diffs 最多支持20项');
+    }
+
+    // 校验每条 diff 的 old_text 和 new_text
+    foreach ($diffs as $i => $diff) {
+      if (!is_array($diff)) {
+        McpError::throw(McpError::INVALID_PARAMS, "diffs[{$i}] 必须是对象");
+      }
+      if (!isset($diff['old_text']) || !is_string($diff['old_text']) || $diff['old_text'] === '') {
+        McpError::throw(McpError::INVALID_PARAMS, "diffs[{$i}].old_text 必须是非空字符串");
+      }
+      if (!isset($diff['new_text']) || !is_string($diff['new_text'])) {
+        McpError::throw(McpError::INVALID_PARAMS, "diffs[{$i}].new_text 必须是字符串");
+      }
+    }
+
+    // 校验 diffs 内 old_text 不能互相重叠/包含
+    for ($i = 0; $i < count($diffs); $i++) {
+      for ($j = $i + 1; $j < count($diffs); $j++) {
+        $a = $diffs[$i]['old_text'];
+        $b = $diffs[$j]['old_text'];
+        if (strpos($a, $b) !== false || strpos($b, $a) !== false) {
+          McpError::throw(
+            McpError::INVALID_PARAMS,
+            "diffs[{$i}].old_text 与 diffs[{$j}].old_text 互相重叠/包含，无法确定替换顺序"
+          );
+        }
+      }
+    }
+
+    // 开源版：使用单一 page 表
+    $pageRow = DB::table('page')
+      ->where('page_id', $pageId)
+      ->where('is_del', 0)
+      ->first();
+
+    if (!$pageRow) {
+      McpError::throw(McpError::RESOURCE_NOT_FOUND, '页面不存在');
+    }
+
+    $itemId = (int) $pageRow->item_id;
+
+    // 检查写入权限
+    $this->requireWritePermission($itemId);
+
+    // 获取项目信息
+    $item = Item::findById($itemId);
+    if (!$item) {
+      McpError::throw(McpError::RESOURCE_NOT_FOUND, '项目不存在');
+    }
+
+    // 使用 Page::findPageByCache 获取页面（自动解压，与 getPage 一致）
+    $page = Page::findPageByCache($pageId, $itemId);
+    if (!$page) {
+      McpError::throw(McpError::RESOURCE_NOT_FOUND, '页面不存在');
+    }
+
+    // 获取解压后的内容（与 getPage 一致）
+    $rawContent = (string) ($page['page_content'] ?? '');
+
+    // HTML 解转义（与 getPage 一致：返回给 AI 的是 decode 后的内容，diff 匹配也应基于此）
+    $content = htmlspecialchars_decode($rawContent, ENT_QUOTES);
+
+    // 乐观锁检查（基于 decode 后的内容计算 hash，与 getPage 的 content_hash 一致）
+    $expectedHash = $params['expected_hash'] ?? null;
+    if ($expectedHash !== null) {
+      $currentHash = substr(md5($content), 0, 12);
+      if ($expectedHash !== $currentHash) {
+        McpError::throw(
+          McpError::VERSION_CONFLICT,
+          '版本冲突：文档已被其他人修改',
+          [
+            'error_type' => 'version_conflict',
+            'your_hash' => $expectedHash,
+            'current_hash' => $currentHash,
+            'suggestion' => '请重新获取最新内容，合并您的修改后重新提交',
+          ]
+        );
+      }
+    }
+
+    // 预校验：先检查所有 old_text 都能在当前内容中找到，且只出现一次
+    // 如果任意一条失败，整批不做任何替换，报错说明
+    $currentContent = $content;
+
+    // 第一轮：预检查所有 diff（基于原始内容，不做实际替换）
+    for ($i = 0; $i < count($diffs); $i++) {
+      $oldText = $diffs[$i]['old_text'];
+      $pos = strpos($currentContent, $oldText);
+      if ($pos === false) {
+        // old_text 不存在，提取附近上下文帮助排查
+        $context = $this->extractDiffContext($currentContent, $oldText, 100);
+        McpError::throw(
+          McpError::OPERATION_FAILED,
+          "diffs[{$i}] 匹配失败：old_text 在当前页面内容中找不到精确匹配，整批操作已回滚",
+          [
+            'error_type' => 'diff_match_failed',
+            'diff_index' => $i,
+            'old_text_preview' => mb_substr($oldText, 0, 200) . (mb_strlen($oldText) > 200 ? '...' : ''),
+            'context' => $context,
+            'suggestion' => '请通过 get_page 获取最新内容，确认 old_text 与实际内容完全一致（包括空格、换行、大小写）',
+          ]
+        );
+      }
+
+      // 检查 old_text 唯一性
+      $secondPos = strpos($currentContent, $oldText, $pos + strlen($oldText));
+      if ($secondPos !== false) {
+        // 找到多处匹配，返回所有位置信息
+        $occurrences = [];
+        $searchPos = 0;
+        while (($foundPos = strpos($currentContent, $oldText, $searchPos)) !== false) {
+          $occurrences[] = [
+            'position' => $foundPos,
+            'context' => mb_substr($currentContent, max(0, $foundPos - 30), min(60 + mb_strlen($oldText), 200)),
+          ];
+          $searchPos = $foundPos + strlen($oldText);
+        }
+        McpError::throw(
+          McpError::OPERATION_FAILED,
+          "diffs[{$i}] 匹配不唯一：old_text 在页面内容中出现多次（共" . count($occurrences) . "处），无法确定替换位置",
+          [
+            'error_type' => 'diff_not_unique',
+            'diff_index' => $i,
+            'occurrence_count' => count($occurrences),
+            'occurrences' => $occurrences,
+            'suggestion' => '请使用更长、更具体的 old_text 片段以消除歧义',
+          ]
+        );
+      }
+
+      // 模拟应用此替换，供下一条 diff 使用
+      $currentContent = substr_replace($currentContent, $diffs[$i]['new_text'], $pos, strlen($oldText));
+    }
+
+    // 所有预校验通过，执行实际替换（重新从原始内容开始）
+    $finalContent = $content;
+    for ($i = 0; $i < count($diffs); $i++) {
+      $oldText = $diffs[$i]['old_text'];
+      $pos = strpos($finalContent, $oldText);
+      $finalContent = substr_replace($finalContent, $diffs[$i]['new_text'], $pos, strlen($oldText));
+    }
+
+    // 复用 updatePage 的核心逻辑（标题、目录、保存、版本历史）
+    try {
+      $updateParams = [
+        'page_id' => $pageId,
+        'page_content' => $finalContent,
+      ];
+      if (isset($params['page_title'])) {
+        $updateParams['page_title'] = $params['page_title'];
+      }
+      if (isset($params['cat_name'])) {
+        $updateParams['cat_name'] = $params['cat_name'];
+      }
+      if (isset($params['cat_id'])) {
+        $updateParams['cat_id'] = $params['cat_id'];
+      }
+      // 乐观锁已在校验阶段通过，不再传 expected_hash 给 updatePage（避免重复检查）
+      $result = $this->updatePage($updateParams, true);
+
+      return [
+        'page_id' => $pageId,
+        'content_hash' => $result['content_hash'] ?? '',
+        'diffs_applied' => count($diffs),
+        'message' => '页面差异更新成功',
+      ];
+    } catch (McpException $e) {
+      throw $e;
+    } catch (\Throwable $e) {
+      throw new McpException(McpError::INTERNAL_ERROR, $e->getMessage());
+    }
+  }
+
+  /**
+   * 从内容中提取 diff 匹配失败时的上下文
+   *
+   * 尝试在内容中找到与 old_text 最相似的片段附近的内容，
+   * 如果找不到任何相似片段，则返回内容开头/结尾的截取。
+   *
+   * @param string $content 完整内容
+   * @param string $oldText 未能匹配的 old_text
+   * @param int $contextLen 上下文长度（字符数）
+   * @return array 上下文信息
+   */
+  private function extractDiffContext(string $content, string $oldText, int $contextLen = 100): array
+  {
+    $contexts = [];
+
+    // 策略1：尝试取 old_text 的前 20 个字符在内容中搜索相似位置
+    $prefix = mb_substr($oldText, 0, 20);
+    if ($prefix !== '') {
+      $pos = mb_strpos($content, $prefix);
+      if ($pos !== false) {
+        $start = max(0, $pos - $contextLen);
+        $end = min(mb_strlen($content), $pos + mb_strlen($prefix) + $contextLen);
+        $contexts[] = [
+          'type' => 'similar_prefix',
+          'position' => $pos,
+          'text' => mb_substr($content, $start, $end - $start),
+        ];
+      }
+    }
+
+    // 策略2：如果没找到相似前缀，取 old_text 的前 10 个字符
+    if (empty($contexts)) {
+      $shortPrefix = mb_substr($oldText, 0, 10);
+      if ($shortPrefix !== '' && $shortPrefix !== $prefix) {
+        $pos = mb_strpos($content, $shortPrefix);
+        if ($pos !== false) {
+          $start = max(0, $pos - $contextLen);
+          $end = min(mb_strlen($content), $pos + mb_strlen($shortPrefix) + $contextLen);
+          $contexts[] = [
+            'type' => 'similar_short_prefix',
+            'position' => $pos,
+            'text' => mb_substr($content, $start, $end - $start),
+          ];
+        }
+      }
+    }
+
+    // 策略3：返回内容长度信息和首尾截取（帮助 AI 判断内容差异）
+    if (empty($contexts)) {
+      $contexts[] = [
+        'type' => 'no_similarity_found',
+        'content_length' => mb_strlen($content),
+        'old_text_length' => mb_strlen($oldText),
+        'content_start' => mb_substr($content, 0, $contextLen),
+        'content_end' => mb_strlen($content) > $contextLen
+          ? mb_substr($content, mb_strlen($content) - $contextLen)
+          : '',
+      ];
+    }
+
+    return $contexts;
   }
 }

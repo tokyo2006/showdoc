@@ -189,9 +189,9 @@ class McpServer
     ];
 
     // 目录管理
-    $this->tools['list_catalogs'] = [
-      'name' => 'list_catalogs',
-      'description' => '获取项目的目录树',
+    $this->tools['get_item_overview'] = [
+      'name' => 'get_item_overview',
+      'description' => '返回项目的完整目录结构和页面列表（不含页面内容），适用于需要了解项目整体结构的场景。包含所有目录（含嵌套子目录）和各目录下的页面（page_id、page_title、s_number）',
       'inputSchema' => [
         'type' => 'object',
         'properties' => [
@@ -516,6 +516,56 @@ class McpServer
           ],
         ],
         'required' => ['page_id'],
+      ],
+      'handler' => 'page',
+    ];
+
+    $this->tools['update_page_diff'] = [
+      'name' => 'update_page_diff',
+      'description' => '使用差异替换方式更新页面内容，只需传入需要替换的片段，无需传整篇内容。适用于大文档的小幅修改场景。注意：old_text 必须精确匹配当前页面内容，建议先通过 get_page 获取最新内容确认',
+      'inputSchema' => [
+        'type' => 'object',
+        'properties' => [
+          'page_id' => [
+            'type' => 'integer',
+            'description' => '页面ID',
+          ],
+          'diffs' => [
+            'type' => 'array',
+            'description' => '差异替换数组（1-20项），每项包含 old_text 和 new_text',
+            'items' => [
+              'type' => 'object',
+              'properties' => [
+                'old_text' => [
+                  'type' => 'string',
+                  'description' => '要替换的原文片段（精确匹配）',
+                ],
+                'new_text' => [
+                  'type' => 'string',
+                  'description' => '替换后的内容',
+                ],
+              ],
+              'required' => ['old_text', 'new_text'],
+            ],
+          ],
+          'page_title' => [
+            'type' => 'string',
+            'description' => '页面标题（可选）',
+          ],
+          'cat_name' => [
+            'type' => 'string',
+            'description' => '目录名称（可选，传入时可将页面移动到指定目录，不存在则自动创建）',
+          ],
+          'cat_id' => [
+            'type' => 'integer',
+            'description' => '目录ID，通过 list_catalogs 获取。指定时直接使用该目录，不通过 cat_name 查找。优先级高于 cat_name。',
+          ],
+          'expected_hash' => [
+            'type' => 'string',
+            'description' => '期望的当前内容哈希（乐观锁，可选）',
+          ],
+        ],
+        'required' => ['page_id', 'diffs'],
       ],
       'handler' => 'page',
     ];

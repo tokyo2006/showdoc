@@ -20,7 +20,7 @@ class CatalogHandler extends McpHandler
    */
   public function getSupportedOperations(): array
   {
-    return ['list_catalogs', 'get_catalog', 'create_catalog', 'update_catalog', 'delete_catalog'];
+    return ['list_catalogs', 'get_item_overview', 'get_catalog', 'create_catalog', 'update_catalog', 'delete_catalog'];
   }
 
   /**
@@ -36,6 +36,9 @@ class CatalogHandler extends McpHandler
     switch ($operation) {
       case 'list_catalogs':
         return $this->listCatalogs($params);
+
+      case 'get_item_overview':
+        return $this->getItemOverview($params);
 
       case 'get_catalog':
         return $this->getCatalog($params);
@@ -86,6 +89,128 @@ class CatalogHandler extends McpHandler
       'item_id' => $itemId,
       'catalogs' => $catalogTree,
     ];
+  }
+
+  /**
+   * 获取项目的完整目录结构（含页面列表，不含页面内容）
+   *
+   * @param array $params 参数
+   * @return array
+   * @throws McpException
+   */
+  private function getItemOverview(array $params): array
+  {
+    $itemId = (int) ($params['item_id'] ?? 0);
+    if ($itemId <= 0) {
+      McpError::throw(McpError::INVALID_PARAMS, '项目ID不能为空');
+    }
+
+    // 检查读取权限
+    $this->requireReadPermission($itemId);
+
+    // 获取项目名称
+    $item = DB::table('item')
+      ->where('item_id', $itemId)
+      ->where('is_del', 0)
+      ->first(['item_id', 'item_name']);
+
+    if (!$item) {
+      McpError::throw(McpError::RESOURCE_NOT_FOUND, '项目不存在');
+    }
+
+    // 获取目录列表
+    $catalogs = DB::table('catalog')
+      ->where('item_id', $itemId)
+      ->orderBy('s_number', 'asc')
+      ->orderBy('cat_id', 'asc')
+      ->get()
+      ->all();
+
+    // 收集所有目录 ID（含根目录 cat_id=0 的页面）
+    $catIds = [0];
+    foreach ($catalogs as $catalog) {
+      $catIds[] = (int) $catalog->cat_id;
+    }
+
+    // 一次性查询所有页面，按 cat_id 分组
+    $tableName = \App\Model\Page::tableForItem($itemId);
+    $allPages = DB::table($tableName)
+      ->where('item_id', $itemId)
+      ->where('is_del', 0)
+      ->orderBy('s_number', 'asc')
+      ->orderBy('page_id', 'asc')
+      ->get(['page_id', 'page_title', 'cat_id', 's_number'])
+      ->all();
+
+    $pagesByCat = [];
+    foreach ($allPages as $p) {
+      $catId = (int) $p->cat_id;
+      if (!isset($pagesByCat[$catId])) {
+        $pagesByCat[$catId] = [];
+      }
+      $pagesByCat[$catId][] = [
+        'page_id' => (int) $p->page_id,
+        'page_title' => $p->page_title,
+        's_number' => (int) ($p->s_number ?? 0),
+      ];
+    }
+
+    // 构建目录树并挂载页面
+    $catalogTree = $this->buildCatalogTreeWithPages($catalogs, 0, $pagesByCat);
+
+    // 根目录下的页面（cat_id=0）
+    $rootPages = $pagesByCat[0] ?? [];
+
+    $result = [
+      'item_id' => $itemId,
+      'item_name' => $item->item_name,
+    ];
+    if (!empty($rootPages)) {
+      $result['pages'] = $rootPages;
+    }
+    if (!empty($catalogTree)) {
+      $result['catalogs'] = $catalogTree;
+    }
+
+    return $result;
+  }
+
+  /**
+   * 构建目录树（带页面）
+   *
+   * @param array $catalogs 目录列表
+   * @param int $parentId 父目录ID
+   * @param array $pagesByCat 按 cat_id 分组的页面
+   * @return array
+   */
+  private function buildCatalogTreeWithPages(array $catalogs, int $parentId, array $pagesByCat): array
+  {
+    $tree = [];
+    foreach ($catalogs as $catalog) {
+      $catalog = (array) $catalog;
+      if ((int) $catalog['parent_cat_id'] === $parentId) {
+        $catId = (int) $catalog['cat_id'];
+        $node = [
+          'cat_id' => $catId,
+          'cat_name' => $catalog['cat_name'],
+          's_number' => (int) ($catalog['s_number'] ?? 0),
+        ];
+
+        // 挂载该目录下的页面
+        if (!empty($pagesByCat[$catId])) {
+          $node['pages'] = $pagesByCat[$catId];
+        }
+
+        // 递归构建子目录
+        $children = $this->buildCatalogTreeWithPages($catalogs, $catId, $pagesByCat);
+        if (!empty($children)) {
+          $node['children'] = $children;
+        }
+
+        $tree[] = $node;
+      }
+    }
+    return $tree;
   }
 
   /**
