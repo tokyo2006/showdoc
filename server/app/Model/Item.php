@@ -4,6 +4,7 @@ namespace App\Model;
 
 use Illuminate\Database\Capsule\Manager as DB;
 use App\Common\Cache\CacheManager;
+use App\Common\Helper\ContentCodec;
 use App\Model\Page;
 
 class Item
@@ -561,6 +562,7 @@ class Item
         }
 
         // 导入页面
+        $pageIdMap = []; // 旧 page_id => 新 page_id 映射（用于看板数据重映射）
         if (!empty($item['pages'])) {
             // 父页面们（一级目录）
             if (!empty($item['pages']['pages'])) {
@@ -575,7 +577,11 @@ class Item
                         's_number'         => (int) ($value['s_number'] ?? 99),
                         'page_comments'    => htmlspecialchars(htmlspecialchars_decode($value['page_comments'] ?? '')),
                     ];
-                    Page::addPage($itemId, $pageData);
+                    $newPageId = Page::addPage($itemId, $pageData);
+                    $oldPageId = (int) ($value['page_id'] ?? 0);
+                    if ($oldPageId > 0 && $newPageId > 0) {
+                        $pageIdMap[$oldPageId] = $newPageId;
+                    }
                 }
             }
 
@@ -583,7 +589,7 @@ class Item
             if (!empty($item['pages']['catalogs'])) {
                 $catPathPages = self::toItemPageCatPath($item['pages']['catalogs']);
                 foreach ($catPathPages as $value) {
-                    Page::updateByTitle(
+                    $newPageId = Page::updateByTitle(
                         $itemId,
                         $value['page_title'] ?? '',
                         $value['page_content'] ?? '',
@@ -592,8 +598,17 @@ class Item
                         $uid,
                         $user->username ?? ''
                     );
+                    $oldPageId = (int) ($value['page_id'] ?? 0);
+                    if ($oldPageId > 0 && $newPageId) {
+                        $pageIdMap[$oldPageId] = (int) $newPageId;
+                    }
                 }
             }
+        }
+
+        // 看板项目：复制/导入后页面ID会变化，需重映射看板数据中的页面ID引用
+        if ((int) ($item['item_type'] ?? 1) === 6 && !empty($pageIdMap)) {
+            self::remapKanbanPageIds($itemId, $pageIdMap);
         }
 
         return $itemId;
@@ -989,5 +1004,138 @@ class Item
         }
 
         return $catalog;
+    }
+
+    /**
+     * 重映射看板数据中的页面ID引用（复制/导入看板项目后修正引用）
+     *
+     * 看板板面数据（__kanban_board__ 页面的 page_content）中的 tasks_order /
+     * archived_tasks_order 引用了任务页面的 page_id；任务数据中的 linked_pages
+     * 也可能引用项目内的页面。复制或导入后页面ID会变化，需根据映射表完整解析后批量替换。
+     *
+     * @param int $itemId 新项目 ID
+     * @param array $pageIdMap 旧 page_id => 新 page_id 映射表
+     */
+    private static function remapKanbanPageIds(int $itemId, array $pageIdMap): void
+    {
+        if ($itemId <= 0 || empty($pageIdMap)) {
+            return;
+        }
+
+        $tableName = Page::tableForItem($itemId);
+
+        // 1. 重映射板面数据中的 tasks_order 和 archived_tasks_order
+        $boardPage = DB::table($tableName)
+            ->where('item_id', $itemId)
+            ->where('page_title', '__kanban_board__')
+            ->where('is_del', 0)
+            ->first();
+
+        if ($boardPage) {
+            $boardData = self::decodeKanbanContent($boardPage->page_content ?? '');
+            if ($boardData !== null) {
+                $changed = false;
+                foreach (['tasks_order', 'archived_tasks_order'] as $orderKey) {
+                    if (!isset($boardData[$orderKey]) || !is_array($boardData[$orderKey])) {
+                        continue;
+                    }
+                    foreach ($boardData[$orderKey] as $listId => $taskIds) {
+                        if (!is_array($taskIds)) {
+                            continue;
+                        }
+                        $newTaskIds = [];
+                        foreach ($taskIds as $pid) {
+                            $pidInt = (int) $pid;
+                            if (isset($pageIdMap[$pidInt])) {
+                                $newTaskIds[] = (string) $pageIdMap[$pidInt];
+                                $changed = true;
+                            } else {
+                                // 映射表中不存在的ID（跨项目引用或无效ID），原样保留
+                                $newTaskIds[] = $pid;
+                            }
+                        }
+                        $boardData[$orderKey][$listId] = $newTaskIds;
+                    }
+                }
+                if ($changed) {
+                    self::saveKanbanPageContent($itemId, (int) $boardPage->page_id, $boardData);
+                }
+            }
+        }
+
+        // 2. 重映射任务数据中的 linked_pages（仅项目内引用）
+        $taskPages = DB::table($tableName)
+            ->where('item_id', $itemId)
+            ->where('is_del', 0)
+            ->where('page_title', '<>', '__kanban_board__')
+            ->get(['page_id', 'page_content'])
+            ->all();
+
+        foreach ($taskPages as $taskPage) {
+            $taskData = self::decodeKanbanContent($taskPage->page_content ?? '');
+            if ($taskData === null) {
+                continue;
+            }
+            if (!isset($taskData['linked_pages']) || !is_array($taskData['linked_pages'])) {
+                continue;
+            }
+            $changed = false;
+            foreach ($taskData['linked_pages'] as &$linked) {
+                if (!is_array($linked)) {
+                    continue;
+                }
+                $oldPid = (int) ($linked['page_id'] ?? 0);
+                // 仅当被引用的页面属于本次复制的源项目（即在映射表中）时才重映射
+                if ($oldPid > 0 && isset($pageIdMap[$oldPid])) {
+                    $linked['page_id'] = (string) $pageIdMap[$oldPid];
+                    $linked['item_id'] = (string) $itemId;
+                    $changed = true;
+                }
+            }
+            unset($linked);
+            if ($changed) {
+                self::saveKanbanPageContent($itemId, (int) $taskPage->page_id, $taskData);
+            }
+        }
+    }
+
+    /**
+     * 解码看板页面内容（解压 + 反转义 + JSON 解析）
+     *
+     * @param string $rawContent 原始 page_content
+     * @return array|null 解析后的数组，解析失败返回 null
+     */
+    private static function decodeKanbanContent(string $rawContent): ?array
+    {
+        if ($rawContent === '') {
+            return null;
+        }
+        $decoded = ContentCodec::decompress($rawContent);
+        if ($decoded !== '') {
+            $rawContent = $decoded;
+        }
+        $content = htmlspecialchars_decode($rawContent, ENT_QUOTES);
+        $data = json_decode($content, true);
+        return is_array($data) ? $data : null;
+    }
+
+    /**
+     * 保存看板页面内容（JSON 编码 + 转义 + 写库）
+     *
+     * 开源版不压缩 page_content，与 KanbanHandler 一致，通过 Page::savePage 写入。
+     *
+     * @param int $itemId 项目 ID
+     * @param int $pageId 页面 ID
+     * @param array $data 看板数据
+     */
+    private static function saveKanbanPageContent(int $itemId, int $pageId, array $data): void
+    {
+        if ($itemId <= 0 || $pageId <= 0) {
+            return;
+        }
+        $content = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        $content = htmlspecialchars($content, ENT_QUOTES, 'UTF-8');
+        Page::savePage($pageId, $itemId, ['page_content' => $content]);
+        Page::deleteCache($pageId);
     }
 }

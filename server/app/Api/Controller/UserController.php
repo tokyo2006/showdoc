@@ -314,6 +314,7 @@ class UserController extends BaseController
             '../Public/SampleZip/teamdoc.zip',
             '../Public/SampleZip/spreadsheet.zip',
             '../Public/SampleZip/whiteboard.zip',
+            '../Public/SampleZip/kanban.zip',
         ];
 
         foreach ($files as $file) {
