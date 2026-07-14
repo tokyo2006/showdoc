@@ -557,12 +557,21 @@ class User
             $ldapForm['user_field'] = 'cn';
         }
 
-        $ldapConn = ldap_connect($ldapForm['host'], $ldapForm['port']);
+        $ldapPort = (int) ($ldapForm['port'] ?? 389);
+        $ldapHost = $ldapForm['host'];
+        // 端口636自动使用LDAPS
+        if ($ldapPort === 636) {
+            $ldapConn = ldap_connect("ldaps://{$ldapHost}", $ldapPort);
+        } else {
+            $ldapConn = ldap_connect($ldapHost, $ldapPort);
+        }
         if (!$ldapConn) {
             return null;
         }
 
         ldap_set_option($ldapConn, LDAP_OPT_PROTOCOL_VERSION, $ldapForm['version'] ?? 3);
+        // 跳过证书验证（兼容内网自签名证书）
+        ldap_set_option($ldapConn, LDAP_OPT_X_TLS_REQUIRE_CERT, LDAP_OPT_X_TLS_NEVER);
         $rs = ldap_bind($ldapConn, $ldapForm['bind_dn'], $ldapForm['bind_password']);
         if (!$rs) {
             return null;
