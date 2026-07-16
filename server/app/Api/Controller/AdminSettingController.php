@@ -49,7 +49,7 @@ class AdminSettingController extends BaseController
         $openAiKey = $this->getParam($request, 'open_ai_key', '');
         $aiSystemPrompt = $this->getParam($request, 'ai_system_prompt', '');
         $aiMaxMessageLength = (int) $this->getParam($request, 'ai_max_message_length', 8000);
-        $aiToolRounds = (int) $this->getParam($request, 'ai_tool_rounds', 10);
+        $aiToolRounds = (int) $this->getParam($request, 'ai_tool_rounds', 20);
         $aiWelcomeMessage = $this->getParam($request, 'ai_welcome_message', '');
         $forceLoginRaw = $this->getParam($request, 'force_login', null);
         $enablePublicSquareRaw = $this->getParam($request, 'enable_public_square', null);
@@ -160,7 +160,7 @@ class AdminSettingController extends BaseController
         }
         $aiSystemPrompt = Options::get("ai_system_prompt");
         $aiMaxMessageLength = (int) Options::get("ai_max_message_length", 8000);
-        $aiToolRounds = (int) Options::get("ai_tool_rounds", 10);
+        $aiToolRounds = (int) Options::get("ai_tool_rounds", 20);
         $aiWelcomeMessage = Options::get("ai_welcome_message");
         $forceLogin = Options::get("force_login");
         $enablePublicSquare = Options::get("enable_public_square");

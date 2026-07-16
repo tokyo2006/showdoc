@@ -922,8 +922,8 @@ class AgentController extends BaseController
         $mcpTokenInfo = $this->buildMcpTokenInfo($uid, $userToken, $sessionItemId, $isGuest, $guestToken);
 
         // ── 15. Agent 循环 ──────────────────────────────────
-        // 开源版：工具轮次上限取自 ai_tool_rounds 选项（绝对上限 20，防死循环）
-        $maxToolRounds = min((int) Options::get('ai_tool_rounds', 10), 20);
+        // 开源版：工具轮次上限取自 ai_tool_rounds 选项（绝对上限 30，防死循环）
+        $maxToolRounds = min((int) Options::get('ai_tool_rounds', 20), 30);
         $toolRound     = 0;
         $fullContent   = ''; // 最终回答内容
         $mcpWriteOps   = []; // MCP 写操作追踪
@@ -1062,6 +1062,41 @@ class AgentController extends BaseController
         // 客户端已断开时，跳过后续 DB 写入和 SSE 输出，直接退出
         $clientDisconnected = connection_aborted() !== 0;
 
+        // ── 15.1 轮次耗尽兜底：基于已收集的工具结果让 LLM 总结回答 ──
+        if ($fullContent === '' && !$clientDisconnected && $toolRound >= $maxToolRounds) {
+            // 检查是否有工具调用记录（即循环确实因轮次耗尽而退出）
+            $hasToolCalls = false;
+            foreach ($llmMessages as $msg) {
+                if (($msg['role'] === 'tool' && !empty($msg['content']))
+                    || ($msg['role'] === 'assistant' && !empty($msg['tool_calls']))) {
+                    $hasToolCalls = true;
+                    break;
+                }
+            }
+            if ($hasToolCalls) {
+                $this->sendSse('text', '[AI 正在整理回答...]');
+                // 构造兜底 messages：system prompt 引导总结 + 已有的完整对话历史（含工具结果）
+                $fallbackMessages = [
+                    ['role' => 'system', 'content' => "你是一个文档助手。之前的对话因工具调用轮次耗尽而中断，但你已经收集了大量信息。请根据已有的工具调用结果，直接用中文总结回答用户的问题。不要调用任何工具，只给出最终回答。如果信息不足以完整回答，请基于已有信息尽量回答，并说明哪些部分信息不足。"],
+                ];
+                // 复用已有的 llmMessages（含 tool 结果），但去掉第一个 system prompt 避免重复
+                foreach ($llmMessages as $idx => $msg) {
+                    if ($idx === 0 && $msg['role'] === 'system') {
+                        continue; // 跳过原始 system prompt，用上面的兜底 prompt 替代
+                    }
+                    $fallbackMessages[] = $msg;
+                }
+                try {
+                    [$fallbackContent, , ] = $this->callLlmStream($fallbackMessages, [], $sessionItemId, $sessionId, $turnToken);
+                    if (!empty($fallbackContent)) {
+                        $fullContent = $fallbackContent;
+                    }
+                } catch (\Throwable $e) {
+                    // 兜底调用失败，继续走下面的原始 fallback
+                }
+            }
+        }
+        // 最终兜底：兜底总结也失败或无工具结果时
         if ($fullContent === '' && !$clientDisconnected) {
             $fullContent = '抱歉，处理较复杂，请尝试更具体的问题。';
             $this->sendSse('text', $fullContent);

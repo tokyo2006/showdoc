@@ -533,7 +533,7 @@ const form = reactive({
   open_ai_key: '',
   ai_system_prompt: '',
   ai_max_message_length: 8000,
-  ai_tool_rounds: 10,
+  ai_tool_rounds: 20,
   ai_welcome_message: '',
   force_login: '0',
   enable_public_square: '0',
@@ -587,7 +587,7 @@ const loadConfig = async () => {
       : 8000
     form.ai_tool_rounds = data.ai_tool_rounds
       ? parseInt(String(data.ai_tool_rounds))
-      : 10
+      : 20
     form.ai_welcome_message = data.ai_welcome_message || ''
     form.force_login = normalizeToBinaryString(data.force_login)
     form.enable_public_square = normalizeToBinaryString(data.enable_public_square)
