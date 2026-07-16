@@ -325,6 +325,20 @@
                 :placeholder="$t('admin.oauth2_logout_redirect_uri_placeholder')"
               />
             </div>
+
+            <div class="form-row">
+              <label class="form-label">
+                {{ $t('admin.oauth2_scope') }}
+                <a-tooltip :title="$t('admin.oauth2_scope_tips')" placement="top">
+                  <QuestionCircleOutlined class="question-icon" />
+                </a-tooltip>
+              </label>
+              <CommonInput
+                v-model="oauth2Form.oauth2_form.scope"
+                class="form-input"
+                :placeholder="$t('admin.oauth2_scope_placeholder')"
+              />
+            </div>
           </div>
         </template>
 
@@ -455,7 +469,8 @@ const oauth2Form = reactive({
     token_path: '',
     resource_path: '',
     userinfo_path: '',
-    logout_redirect_uri: ''
+    logout_redirect_uri: '',
+    scope: ''
   }
 })
 
