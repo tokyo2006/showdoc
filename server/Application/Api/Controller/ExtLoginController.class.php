@@ -120,14 +120,24 @@ class ExtLoginController extends BaseController
         }
 
 
-        $provider = new \League\OAuth2\Client\Provider\GenericProvider([
+        // 可选 scope：兼容 OIDC 提供方（如 Authelia、Keycloak），其 userinfo 端点要求 openid scope。
+        // 留空时保持原有行为，避免对 GitHub/GitLab 等不支持 openid 的提供方造成破坏。
+        $scope = trim((string) ($oauth2_form['scope'] ?? ''));
+
+        $providerConfig = [
             'clientId' => $clientId,    // The client ID assigned to you by the provider
             'clientSecret' => $clientSecret,    // The client password assigned to you by the provider
             'redirectUri' => $redirectUri,
             'urlAuthorize' => $urlAuthorize,
             'urlAccessToken' => $urlAccessToken,
             'urlResourceOwnerDetails' => $urlResourceOwnerDetails,
-        ], [
+        ];
+        if ($scope !== '') {
+            $providerConfig['scopes'] = $scope;
+            $providerConfig['scopeSeparator'] = ' ';
+        }
+
+        $provider = new \League\OAuth2\Client\Provider\GenericProvider($providerConfig, [
             'httpClient' => new \GuzzleHttp\Client(['verify' => false]),
         ]);
 
@@ -137,7 +147,7 @@ class ExtLoginController extends BaseController
             // Fetch the authorization URL from the provider; this returns the
             // urlAuthorize option and generates and applies any necessary parameters
             // (e.g. state).
-            $authorizationUrl = $provider->getAuthorizationUrl();
+            $authorizationUrl = $provider->getAuthorizationUrl($scope !== '' ? ['scope' => $scope] : []);
 
             // Get the state generated for you and store it to the session.
             $_SESSION['oauth2state'] = $provider->getState();

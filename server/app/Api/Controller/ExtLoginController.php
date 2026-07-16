@@ -177,21 +177,32 @@ class ExtLoginController extends BaseController
             $urlUserInfo = $oauth2Form['protocol'] . "://" . $oauth2Form['host'] . $oauth2Form['userinfo_path'];
         }
 
-        $provider = new GenericProvider([
+        // 可选 scope：兼容 OIDC 提供方（如 Authelia、Keycloak）。
+        // 这类提供方的 userinfo 端点要求携带 openid scope，否则会返回 insufficient_scope。
+        // 留空时保持原有行为（不传 scope），避免对 GitHub/GitLab 等不支持 openid 的提供方造成破坏。
+        $scope = trim((string) ($oauth2Form['scope'] ?? ''));
+
+        $providerConfig = [
             'clientId' => $clientId,
             'clientSecret' => $clientSecret,
             'redirectUri' => $redirectUri,
             'urlAuthorize' => $urlAuthorize,
             'urlAccessToken' => $urlAccessToken,
             'urlResourceOwnerDetails' => $urlResourceOwnerDetails,
-        ], [
+        ];
+        if ($scope !== '') {
+            $providerConfig['scopes'] = $scope;
+            $providerConfig['scopeSeparator'] = ' ';
+        }
+
+        $provider = new GenericProvider($providerConfig, [
             'httpClient' => new Client(['verify' => false]),
         ]);
 
         // 如果没有授权码，获取授权 URL
         $code = $this->getParam($request, 'code', '');
         if (!$code) {
-            $authorizationUrl = $provider->getAuthorizationUrl();
+            $authorizationUrl = $provider->getAuthorizationUrl($scope !== '' ? ['scope' => $scope] : []);
             $_SESSION['oauth2state'] = $provider->getState();
             return $response->withStatus(302)->withHeader('Location', $authorizationUrl);
         }
