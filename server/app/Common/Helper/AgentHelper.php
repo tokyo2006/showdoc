@@ -629,6 +629,18 @@ GUEST_LIMIT;
         }
 
         $curl = curl_init();
+        // Alpine 镜像中 curl 硬编码使用 c-ares 做 DNS 解析，
+        // c-ares 对某些 DNS 服务器的 EDNS0 响应兼容性差（参见 c-ares #968），
+        // 间歇性报 "DNS server returned answer with no data"。
+        // 用 PHP gethostbyname（走 musl resolver）提前解析，再 CURLOPT_RESOLVE 跳过 c-ares。
+        $parsedHost = parse_url($url, PHP_URL_HOST);
+        if ($parsedHost && filter_var($parsedHost, FILTER_VALIDATE_IP) === false) {
+            $resolvedIp = gethostbyname($parsedHost);
+            $parsedPort = parse_url($url, PHP_URL_PORT) ?: 443;
+            if ($resolvedIp && $resolvedIp !== $parsedHost) {
+                curl_setopt($curl, CURLOPT_RESOLVE, ["{$parsedHost}:{$parsedPort}:{$resolvedIp}"]);
+            }
+        }
         curl_setopt($curl, CURLOPT_URL, $url);
         curl_setopt($curl, CURLOPT_POST, 1);
         curl_setopt($curl, CURLOPT_POSTFIELDS, $postData);
@@ -636,8 +648,6 @@ GUEST_LIMIT;
         curl_setopt($curl, CURLOPT_CONNECTTIMEOUT, 30);
         curl_setopt($curl, CURLOPT_TIMEOUT, 0); // 流式不设总超时
         curl_setopt($curl, CURLOPT_ENCODING, '');
-        curl_setopt($curl, CURLOPT_FRESH_CONNECT, true);
-        curl_setopt($curl, CURLOPT_FORBID_REUSE, true);
         curl_setopt($curl, CURLOPT_FOLLOWLOCATION, true);
         curl_setopt($curl, CURLOPT_MAXREDIRS, 3);
 
