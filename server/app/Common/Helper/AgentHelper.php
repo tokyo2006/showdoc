@@ -619,15 +619,6 @@ GUEST_LIMIT;
 
         $url = rtrim($this->aiServiceUrl, '/') . '/chat/completions';
 
-        // S4 fix: 强制 HTTPS，防止 Token 通过明文 HTTP 泄露
-        // 例外：localhost / 127.0.0.1 用于测试环境（mock LLM server）
-        if (stripos($url, 'https://') !== 0
-            && stripos($url, 'http://127.0.0.1') !== 0
-            && stripos($url, 'http://localhost') !== 0
-        ) {
-            return ['', [], 'error', 0, 0];
-        }
-
         $curl = curl_init();
         // Alpine 镜像中 curl 硬编码使用 c-ares 做 DNS 解析，
         // c-ares 对某些 DNS 服务器的 EDNS0 响应兼容性差（参见 c-ares #968），
